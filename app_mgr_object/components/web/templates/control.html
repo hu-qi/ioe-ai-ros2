@@ -1,0 +1,2282 @@
+{% extends "base.html" %}
+
+{% block title %}运维控制 - 天眼运维监控系统{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* ===== control.html 内联样式 — 与首页统一深色主题 ===== */
+
+    /* ----- 模式指示器 ----- */
+    .mode-indicator {
+        position: fixed; top: 56px; right: 20px; z-index: 999;
+        padding: 4px 14px; border-radius: 14px; font-size: 11px;
+        font-weight: 600; color: #fff; cursor: default;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .mode-indicator.mode-development { background: var(--accent-blue); }
+    .mode-indicator.mode-deployment  { background: var(--accent-red); }
+
+    
+
+    /* ----- 自定义弹窗（深色） ----- */
+    .custom-modal {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 1050; display: none;
+        background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
+    }
+    .custom-modal.show {
+        display: flex; align-items: center; justify-content: center;
+    }
+    .custom-modal-dialog {
+        width: 90%; max-width: 500px; z-index: 1052;
+        animation: toast-in 0.3s ease;
+    }
+    .custom-modal-content {
+        background: var(--bg-secondary); border: 1px solid var(--border);
+        border-radius: var(--card-radius); box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        overflow: hidden;
+    }
+    .custom-modal-header {
+        padding: 16px 20px; background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border); color: var(--text-primary);
+        font-size: 15px; font-weight: 600;
+        display: flex; align-items: center; justify-content: space-between;
+    }
+    .custom-modal-body {
+        padding: 20px; max-height: 60vh; overflow-y: auto;
+        color: var(--text-primary); font-size: 13px; line-height: 1.6;
+    }
+    .custom-modal-footer {
+        padding: 12px 20px; background: var(--bg-tertiary);
+        border-top: 1px solid var(--border);
+        display: flex; justify-content: flex-end; gap: 10px;
+    }
+    .custom-modal-btn {
+        padding: 7px 18px; border-radius: 5px; font-size: 12px;
+        border: 1px solid var(--border); cursor: pointer;
+        background: var(--bg-secondary); color: var(--text-secondary);
+        transition: all 0.15s;
+    }
+    .custom-modal-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .custom-modal-btn-primary {
+        background: var(--accent-blue); color: #fff; border-color: var(--accent-blue);
+    }
+    .custom-modal-btn-primary:hover { background: #2980b9; }
+    .custom-modal-btn-danger {
+        background: var(--accent-red); color: #fff; border-color: var(--accent-red);
+    }
+    .custom-modal-btn-danger:hover { background: #c0392b; }
+
+    /* ----- 卡片过渡动画 ----- */
+    .card-transition { transition: all 0.3s ease; }
+    .card-hidden {
+        opacity: 0; height: 0; overflow: hidden;
+        margin: 0 !important; padding: 0 !important;
+        border: none !important; display: none !important;
+    }
+    .card-visible { opacity: 1; height: auto; display: block !important; }
+    .initially-hidden { display: none !important; }
+
+    /* ----- 操作日志表格 ----- */
+    .operation-stats-table {
+        color: var(--text-primary);
+        font-size: 12px;
+    }
+    .operation-stats-table th {
+        color: var(--text-muted); font-size: 10px; text-transform: uppercase;
+        background: var(--bg-tertiary); border-bottom: 2px solid var(--border);
+    }
+    .operation-stats-table td {
+        border-color: var(--border); color: var(--text-secondary);
+    }
+    .operation-stats-table tbody tr:hover { background: var(--bg-tertiary); }
+
+    /* ----- 运行模式功能区分隔 ----- */
+    .mode-specific-features {
+        border-top: 1px dashed var(--border);
+        padding-top: 12px; margin-top: 12px;
+    }
+    .card-note { font-size: 11px; opacity: 0.8; color: var(--text-muted); }
+
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2 control-page">
+    
+<!-- 模式指示器 -->
+<!-- <div id="mode-indicator" class="mode-indicator d-none">
+    <i class="fas fa-cog"></i> <span id="mode-text">加载中...</span>
+</div> -->
+<div class="system-bar">
+    <div class="sys-item"><i class="fas fa-server"></i> <span id="sys-mode-ctl">--</span></div>
+    <div class="sys-divider"></div>
+    <div class="sys-item"><i class="fas fa-chart-pie"></i>
+        <a href="/" style="color:var(--accent-blue);">返回首页</a>
+    </div>
+    <span class="sys-spacer"></span>
+    <div class="sys-item"><i class="fas fa-bell"></i> 告警
+        <span class="alarm-badge" id="sys-alarm-count-ctl">0</span>
+    </div>
+    <div class="sys-item" id="sys-clock-ctl"></div>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <!-- 节点控制 - 根据模式显示/隐藏 -->
+        <div id="node-control-card" class="card status-card initially-hidden">
+            <div class="card-header">
+                <i class="fas fa-microchip"></i> 节点控制
+                <small id="node-control-note" class="card-note" style="float:right;"></small>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6>视频推理节点</h6>
+                                <p class="text-muted" id="infer-nodes-list">节点: /rtsp_multi_inference</p>
+                                <button class="btn btn-danger w-100" onclick="opsNodeAction('rtsp_node', 'restart')">
+                                    <i class="fas fa-redo"></i> 重启推理节点
+                                </button>
+                                <small class="text-muted d-block mt-2">
+                                    重启视频推理相关节点，适用于节点异常或通道信号异常时
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6>RCS管理节点</h6>
+                                <p class="text-muted">节点: /rcs_manager</p>
+                                <button class="btn btn-danger w-100" onclick="opsNodeAction('app_mgr', 'restart')">
+                                    <i class="fas fa-power-off"></i> 重启RCS管理器
+                                </button>
+                                <small class="text-muted d-block mt-2">
+                                    重启RCS管理应用，适用于系统配置变更或应用异常时
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="alert alert-warning mt-3">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>注意：</strong> 重启节点会中断正在进行的任务，请谨慎操作！
+                </div>
+                
+            </div>
+        </div>
+        
+        <!-- 节点运维（经 OPS 统一控制，P2：doc/P2 v2；节点源 OPS 权威 /api/nodes） -->
+        <div id="service-management-card" class="card status-card mt-3 initially-hidden">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-server"></i> 节点运维（经 OPS 统一控制）</h5>
+                <small id="service-management-note" class="card-note">控制由 OPS 单点执行，自动协调看门狗（停止后暂停自愈，需手动启动恢复）</small>
+            </div>
+            <div class="card-body">
+                <!-- 快速节点操作 -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6>推理节点</h6>
+                                <p class="text-muted skeleton-text" id="ops-node-rtsp">加载中...</p>
+                                <button class="btn btn-accent btn-sm w-100" onclick="opsNodeAction('rtsp_node', 'restart')">
+                                    <i class="fas fa-redo"></i> 重启推理节点
+                                </button>
+                                <small class="text-muted d-block mt-2">经 OPS 执行重启（看门狗自动 reset）</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <div class="card-body">
+                                <h6>RCS 节点</h6>
+                                <p class="text-muted skeleton-text" id="ops-node-appmgr">加载中...</p>
+                                <button class="btn btn-accent btn-sm w-100" onclick="opsNodeAction('app_mgr', 'restart')">
+                                    <i class="fas fa-power-off"></i> 重启 RCS 节点
+                                </button>
+                                <small class="text-muted d-block mt-2">经 OPS 执行重启（看门狗自动 reset）</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 通用节点操作（节点状态已迁移至状态监控页，P3 doc） -->
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="op-label">节点</label>
+                            <select class="form-select" id="service-select">
+                                <option value="">加载中...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="op-label">操作类型</label>
+                            <select class="form-select" id="action-select">
+                                <option value="start">启动</option>
+                                <option value="stop">停止</option>
+                                <option value="restart" selected>重启</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <button class="btn btn-accent btn-sm w-100" onclick="controlService()">
+                            <i class="fas fa-play"></i> 执行节点操作
+                        </button>
+                    </div>
+                </div>
+
+                <div id="service-result" class="mt-3" style="display: none;">
+                    <!-- 节点操作结果将显示在这里 -->
+                </div>
+                <div class="alert alert-theme mt-3">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>OPS 集成: <span id="ops-integration-state">--</span></strong>
+                    <span class="ms-2">当前运行模式: <span id="mode-display-deploy">--</span></span>
+                </div>
+            </div>
+        </div>
+        
+        
+        <!-- 自定义命令 - 两种模式都显示 -->
+        <div id="custom-command-card" class="card status-card mt-3">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-terminal"></i> 自定义命令</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="op-label">命令输入</label>
+                    <div class="command-input-group">
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="text" class="form-control" id="command-input" 
+                                   placeholder="输入要执行的命令..." 
+                                   value="ps aux | grep rtsp">
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        支持的安全命令：systemctl、bash脚本、ps、grep等系统检查命令
+                    </small>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="op-label">超时时间（秒）</label>
+                    <input type="number" class="form-control" id="command-timeout" value="30" min="5" max="300">
+                </div>
+                
+                <button class="btn btn-accent w-100" onclick="showExecuteCommandModal()">
+                    <i class="fas fa-play"></i> 执行命令
+                </button>
+                
+                <div id="command-result" class="mt-3" style="display: none;">
+                    <!-- 命令执行结果将显示在这里 -->
+                </div>
+                
+                <div class="alert alert-theme warning mt-3">
+                    <i class="fas fa-shield-alt"></i>
+                    <strong>安全限制：</strong> 禁止执行危险命令（rm -rf、dd等），所有命令都会经过安全验证。
+                </div>
+            </div>
+        </div>
+    </div> <!-- 关闭 col-lg-8 -->
+    
+    <!-- 侧边栏 - 修正：移到 col-lg-8 外面，但在同一行内 -->
+    <div class="col-lg-4">
+        <!-- 快速操作 -->
+        <div class="card status-card quick-actions-card">
+            <div class="card-header">
+                <i class="fas fa-bolt"></i> 快速操作
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <button class="btn quick-action-btn system-check" onclick="showSystemCheckModal()">
+                        <i class="fas fa-stethoscope"></i> 系统检查
+                    </button>
+                    <button class="btn quick-action-btn clear-cache" onclick="showClearCacheModal()">
+                        <i class="fas fa-broom"></i> 清理缓存
+                    </button>
+                    <button class="btn quick-action-btn refresh-status" onclick="refreshCurrentStatus()">
+                        <i class="fas fa-sync-alt"></i> 刷新状态
+                    </button>
+                    <button class="btn quick-action-btn view-logs" onclick="viewOperationLogs()">
+                        <i class="fas fa-history"></i> 查看操作日志
+                    </button>
+                </div>
+                
+                <div class="operator-panel">
+                    <h6>操作员信息</h6>
+                    <div class="input-group mb-3">
+                        <span class="input-group-text"><i class="fas fa-user"></i></span>
+                        <input type="text" class="form-control" id="operator-name"
+                               value="operator" readonly>
+                        <button class="btn btn-outline btn-sm" type="button" onclick="switchOperator()">
+                            <i class="fas fa-exchange-alt"></i> 切换
+                        </button>
+                    </div>
+                    <small class="operator-role">当前操作员权限: <span id="operator-role">普通操作员</span></small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 操作统计 -->
+        <!-- <div class="card status-card mt-3 stats-card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar"></i> 操作统计</h5>
+            </div>
+            <div class="card-body">
+                <div id="operation-stats">
+                    <div class="text-center mb-3">
+                        <div class="stat-number" id="success-rate">0%</div>
+                        <div class="stat-label">操作成功率</div>
+                    </div>
+                    
+                    <div class="row text-center mb-3">
+                        <div class="col-6">
+                            <div class="stat-number" id="total-operations">0</div>
+                            <div class="stat-label">总操作数</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-number" id="successful-operations">0</div>
+                            <div class="stat-label">成功操作</div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <h6 class="mb-2">操作类型分布:</h6>
+                        <div id="operation-type-distribution">
+                            <p class="text-center text-muted">暂无操作记录</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div> -->
+        
+        <!-- 最近操作 -->
+        <div class="card status-card mt-3" id="recent-operations-card">
+            <div class="card-header">
+                <i class="fas fa-history"></i> 最近操作
+            </div>
+            <div class="card-body">
+                <div id="recent-operations-list">
+                    <p class="text-center text-muted">暂无操作记录</p>
+                </div>
+                <button class="btn btn-outline btn-sm w-100 mt-2" onclick="loadMoreOperations()">
+                    <i class="fas fa-arrow-down"></i> 查看更多
+                </button>
+            </div>
+        </div>
+        
+        <!-- 操作说明 -->
+        <div class="card status-card mt-3">
+            <div class="card-header">
+                <i class="fas fa-book"></i> 操作说明
+            </div>
+            <div class="card-body">
+                <div class="accordion" id="operationHelp">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#help1">
+                                节点控制
+                            </button>
+                        </h2>
+                        <div id="help1" class="accordion-collapse collapse show" data-bs-parent="#operationHelp">
+                            <div class="accordion-body">
+                                <p>用于控制节点的启动和停止。</p>
+                                <ul>
+                                    <li><strong>重启推理节点：</strong>适用于视频分析异常时</li>
+                                    <li><strong>重启RCS管理器：</strong>适用于配置变更或应用异常时</li>
+                                </ul>
+                                <p class="help-note info"><i class="fas fa-info-circle"></i> <em>仅开发模式下可用</em></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#help2">
+                                服务管理
+                            </button>
+                        </h2>
+                        <div id="help2" class="accordion-collapse collapse" data-bs-parent="#operationHelp">
+                            <div class="accordion-body">
+                                <p>用于管理系统服务（仅部署模式）。</p>
+                                <ul>
+                                    <li><strong>启动服务：</strong>启动指定的系统服务</li>
+                                    <li><strong>停止服务：</strong>停止指定的系统服务</li>
+                                    <li><strong>重启服务：</strong>重新启动指定的系统服务</li>
+                                    <li><strong>状态查询：</strong>查看服务的运行状态</li>
+                                </ul>
+                                <p class="help-note warning"><i class="fas fa-exclamation-circle"></i> <em>仅部署模式下可用</em></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#help3">
+                                模式切换
+                            </button>
+                        </h2>
+                        <div id="help3" class="accordion-collapse collapse" data-bs-parent="#operationHelp">
+                            <div class="accordion-body">
+                                <p>系统支持两种运行模式：</p>
+                                <ul>
+                                    <li><strong>开发模式：</strong>使用脚本启动节点，便于调试和开发</li>
+                                    <li><strong>部署模式：</strong>使用systemd服务管理，适合生产环境</li>
+                                </ul>
+                                <p class="help-note danger"><i class="fas fa-shield-alt"></i> <em>模式切换仅限管理员权限</em></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div> <!-- 关闭 col-lg-4 -->
+</div> <!-- 关闭 row -->
+
+<!-- 操作日志模态框 -->
+<div class="modal fade" id="logsModal" tabindex="-1" aria-labelledby="logsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="logsModalLabel">操作日志</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-hover" id="logsTable">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>操作</th>
+                                <th>操作员</th>
+                                <th>参数</th>
+                                <th>结果</th>
+                                <th>详情</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- 日志数据将通过JS动态加载 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" onclick="exportLogs()">导出日志</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 自定义弹窗模态框 -->
+<div id="customModal" class="custom-modal">
+    <div class="custom-modal-backdrop" onclick="closeCustomModal()"></div>
+    <div class="custom-modal-dialog">
+        <div class="custom-modal-content">
+            <div class="custom-modal-header">
+                <h5 class="custom-modal-title" id="customModalTitle">
+                    <i class="fas fa-info-circle"></i> 操作确认
+                </h5>
+            </div>
+            <div class="custom-modal-body" id="customModalBody">
+                <!-- 弹窗内容动态填充 -->
+            </div>
+            <div class="custom-modal-footer" id="customModalFooter">
+                <!-- 按钮动态填充 -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 结果模态框 -->
+<div class="modal fade" id="resultModal" tabindex="-1" aria-labelledby="resultModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="resultModalTitle">操作结果</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="resultModalContent">
+                <!-- 结果内容 -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>    
+</div>
+<!-- ====== 告警管理面板 ====== -->
+<div class="row g-2 mt-3">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-exclamation-triangle"></i> 告警管理
+                <span class="tab-bar-inline">
+                    <span class="tab active" data-alarm-tab="all">全部</span>
+                    <span class="tab" data-alarm-tab="unack">未确认 <b id="alarm-tab-unack">0</b></span>
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div class="task-table-wrap">
+                    <table class="table task-table mb-0" id="alarms-table">
+                        <thead><tr><th>级别</th><th>消息</th><th>时间</th><th>状态</th><th>操作</th></tr></thead>
+                        <tbody id="alarms-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><i class="fas fa-chart-bar"></i> 告警统计</div>
+            <div class="card-body" id="alarm-stats">
+                <div style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</div>
+            </div>
+        </div>
+        <div class="mt-2">
+            <button class="btn btn-outline btn-sm w-100" id="btn-clear-alarms">
+                <i class="fas fa-check-double"></i> 一键清除已解决告警
+            </button>
+        </div>
+    </div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/api.js"></script>
+<script src="/static/js/control.js"></script>
+<script>
+    // ==================== 全局变量定义 ====================
+    let currentMode = 'development';
+    let systemDetails = {};
+    let currentOperator = 'operator';
+    let operationLogs = [];
+    
+    let operationLimitsConfig = {  // 将配置移到单独的变量
+        max_per_minute: 10,
+        max_per_hour: 50,
+        last_operations: []
+    };
+
+    let currentOperationLimit = 10;  // 当前显示的操作记录数量
+
+    let isRestarting = false;
+
+    let nodeConfigCache = [];   // 节点配置列表
+    let serviceConfigCache = []; // 服务配置列表
+
+    // ==================== 自定义弹窗功能 ====================
+    
+    // 显示自定义弹窗
+    function showCustomModal(title, content, buttons = []) {
+        const modal = document.getElementById('customModal');
+        const titleElement = document.getElementById('customModalTitle');
+        const bodyElement = document.getElementById('customModalBody');
+        const footerElement = document.getElementById('customModalFooter');
+        
+        // 设置标题
+        titleElement.innerHTML = `<i class="fas fa-info-circle"></i> ${title}`;
+        
+        // 设置内容
+        bodyElement.innerHTML = content;
+        
+        // 设置按钮
+        footerElement.innerHTML = '';
+        if (buttons.length === 0) {
+            buttons = [
+                { text: '取消', class: 'custom-modal-btn', onclick: 'closeCustomModal()' },
+                { text: '确认', class: 'custom-modal-btn custom-modal-btn-primary', onclick: 'closeCustomModal()' }
+            ];
+        }
+        
+        buttons.forEach(btn => {
+            const button = document.createElement('button');
+            button.className = btn.class;
+            button.textContent = btn.text;
+            button.onclick = function() {
+                if (btn.onclick) {
+                    eval(btn.onclick);
+                }
+            };
+            footerElement.appendChild(button);
+        });
+        
+        // 显示弹窗
+        modal.classList.add('show');
+        setTimeout(() => {
+            const dialog = modal.querySelector('.custom-modal-dialog');
+            dialog.classList.add('show');
+        }, 10);
+        
+        // 阻止背景滚动
+        document.body.style.overflow = 'hidden';
+    }
+    
+    // 关闭自定义弹窗
+    function closeCustomModal() {
+        const modal = document.getElementById('customModal');
+        const dialog = modal.querySelector('.custom-modal-dialog');
+        
+        dialog.classList.remove('show');
+        setTimeout(() => {
+            modal.classList.remove('show');
+            document.body.style.overflow = '';
+        }, 300);
+    }
+    
+    // 显示系统检查弹窗
+    function showSystemCheckModal() {
+        const content = `
+            <div class="operation-confirm-icon">
+                <i class="fas fa-stethoscope"></i>
+            </div>
+            <h5 class="text-center mb-3">确认执行系统检查</h5>
+            <div class="operation-info-text">
+                <p><strong>检查内容：</strong></p>
+                <ul>
+                    <li>磁盘空间使用情况</li>
+                    <li>内存使用情况</li>
+                    <li>CPU负载</li>
+                    <li>系统运行时间</li>
+                </ul>
+                <p class="mt-2"><small><i class="fas fa-info-circle text-info"></i> 系统检查将执行多个系统命令来获取当前系统状态。</small></p>
+            </div>
+        `;
+        
+        const buttons = [
+            { 
+                text: '取消', 
+                class: 'custom-modal-btn', 
+                onclick: 'closeCustomModal()' 
+            },
+            { 
+                text: '开始检查', 
+                class: 'custom-modal-btn custom-modal-btn-primary', 
+                onclick: 'closeCustomModal(); performSystemCheck();' 
+            }
+        ];
+        
+        showCustomModal('系统检查确认', content, buttons);
+    }
+    
+    // 执行系统检查操作
+    function performSystemCheck() {
+        const operator = document.getElementById('operator-name').value;
+        
+        showToast('正在执行系统检查...', 'info', '系统检查');
+        
+        fetch('/api/control/system_check', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                params: {},
+                operator: operator
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // 构建详细的系统检查结果
+                let resultHtml = '<div class="system-check-results">';
+                resultHtml += '<div class="alert alert-success mb-3">';
+                resultHtml += '<h6><i class="fas fa-check-circle"></i> 系统检查完成</h6>';
+                resultHtml += '<p class="mb-0">以下是系统检查的详细结果：</p>';
+                resultHtml += '</div>';
+                
+                if (data.checks && data.checks.length > 0) {
+                    resultHtml += '<div class="accordion" id="systemCheckAccordion">';
+                    
+                    data.checks.forEach((check, index) => {
+                        const statusIcon = check.success ? '✅' : '❌';
+                        const statusClass = check.success ? 'success' : 'danger';
+                        const accordionId = `check${index}`;
+                        
+                        resultHtml += `
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button ${check.success ? '' : 'collapsed'}" type="button" 
+                                            data-bs-toggle="collapse" data-bs-target="#${accordionId}">
+                                        <span class="me-2">${statusIcon}</span>
+                                        <span>${check.name}</span>
+                                        <span class="badge bg-${statusClass} ms-auto">${check.success ? '通过' : '失败'}</span>
+                                    </button>
+                                </h2>
+                                <div id="${accordionId}" class="accordion-collapse collapse ${check.success ? 'show' : ''}" 
+                                     data-bs-parent="#systemCheckAccordion">
+                                    <div class="accordion-body">
+                                        <div class="check-output">
+                                            <strong>输出结果：</strong>
+                                            <pre class="bg-light p-2 rounded mt-2">${check.output || '无输出'}</pre>
+                                        </div>
+                                        ${check.error ? `
+                                        <div class="check-error mt-2">
+                                            <strong class="text-danger">错误信息：</strong>
+                                            <pre class="bg-danger text-light p-2 rounded mt-1">${check.error}</pre>
+                                        </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    resultHtml += '</div>'; // 关闭 accordion
+                    
+                    // 添加统计信息
+                    if (data.summary) {
+                        resultHtml += `
+                            <div class="alert alert-info mt-3">
+                                <div class="row text-center">
+                                    <div class="col-6">
+                                        <h4>${data.summary.passed || 0}</h4>
+                                        <small class="text-muted">通过检查</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <h4>${data.summary.total || 0}</h4>
+                                        <small class="text-muted">总检查项</small>
+                                    </div>
+                                </div>
+                                <div class="progress mt-2" style="height: 8px;">
+                                    <div class="progress-bar bg-success" 
+                                         style="width: ${data.summary.total > 0 ? (data.summary.passed / data.summary.total * 100) : 0}%">
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                } else {
+                    resultHtml += '<div class="alert alert-warning">未获取到系统检查结果</div>';
+                }
+                
+                resultHtml += '</div>'; // 关闭 system-check-results
+                
+                // 显示结果弹窗
+                showResultModal('系统检查结果', resultHtml, 'info');
+            } else {
+                showResultModal('系统检查失败', `<div class="alert alert-danger">${data.error || '未知错误'}</div>`, 'error');
+            }
+            
+            // 刷新统计和操作记录
+            setTimeout(() => {
+                // loadOperationStats();
+                loadRecentOperations(10);
+            }, 1000);
+        })
+        .catch(error => {
+            showResultModal('请求失败', `无法连接到服务器：${error.toString()}`, 'error');
+        });
+    }
+    
+    // 显示清理缓存确认弹窗
+    function showClearCacheModal() {
+        const content = `
+            <div class="operation-confirm-icon">
+                <i class="fas fa-broom operation-warning-icon"></i>
+            </div>
+            <h5 class="text-center mb-3">确认清理缓存</h5>
+            <div class="operation-info-text">
+                <p><strong>清理内容：</strong></p>
+                <ul>
+                    <li>系统临时文件</li>
+                    <li>应用程序缓存</li>
+                    <li>日志轮转文件</li>
+                    <li>临时下载文件</li>
+                </ul>
+                <p class="mt-2"><small><i class="fas fa-exclamation-triangle text-warning"></i> 注意：清理缓存可能会删除临时文件，但不会影响系统配置和重要数据。</small></p>
+            </div>
+        `;
+        
+        const buttons = [
+            { 
+                text: '取消', 
+                class: 'custom-modal-btn', 
+                onclick: 'closeCustomModal()' 
+            },
+            { 
+                text: '确认清理', 
+                class: 'custom-modal-btn custom-modal-btn-primary', 
+                onclick: 'closeCustomModal(); performClearCache();' 
+            }
+        ];
+        
+        showCustomModal('清理缓存确认', content, buttons);
+    }
+    
+    // 执行清理缓存操作
+    function performClearCache() {
+        const operator = document.getElementById('operator-name').value;
+        
+        showToast('正在清理系统缓存...', 'info', '清理缓存');
+        
+        fetch('/api/control/clear_cache', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                params: {},
+                operator: operator
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                let resultHtml = '<div class="alert alert-success">';
+                resultHtml += '<h6><i class="fas fa-check-circle"></i> 缓存清理完成</h6>';
+                
+                if (data.results && data.results.length > 0) {
+                    resultHtml += '<div class="mt-2">';
+                    resultHtml += '<p><strong>清理结果：</strong></p>';
+                    data.results.forEach(result => {
+                        const statusIcon = result.success ? '✅' : '❌';
+                        const commandName = result.command ? result.command.split(' ')[0] : '未知命令';
+                        resultHtml += `<div><strong>${statusIcon} ${commandName}:</strong> ${result.success ? '成功' : '失败'}</div>`;
+                    });
+                    resultHtml += '</div>';
+                }
+                
+                if (data.message) {
+                    resultHtml += `<p class="mb-0">${data.message}</p>`;
+                }
+                
+                resultHtml += '</div>';
+                
+                showResultModal('缓存清理结果', resultHtml, 'success');
+            } else {
+                showResultModal('清理缓存失败', `<div class="alert alert-danger">${data.error || '未知错误'}</div>`, 'error');
+            }
+            
+            // 刷新统计和操作记录
+            setTimeout(() => {
+                // loadOperationStats();
+                loadRecentOperations(10);
+            }, 1000);
+        })
+        .catch(error => {
+            showResultModal('请求失败', `无法连接到服务器：${error.toString()}`, 'error');
+        });
+    }
+    
+    // 显示执行命令确认弹窗
+    function showExecuteCommandModal() {
+        const commandInput = document.getElementById('command-input');
+        const command = commandInput.value.trim();
+        const timeout = document.getElementById('command-timeout').value || 30;
+        
+        if (!command) {
+            showCustomModal('输入错误', '<p class="text-danger">请输入要执行的命令！</p>', [
+                { text: '确定', class: 'custom-modal-btn custom-modal-btn-primary', onclick: 'closeCustomModal()' }
+            ]);
+            return;
+        }
+        
+        const content = `
+            <div class="operation-confirm-icon">
+                <i class="fas fa-terminal"></i>
+            </div>
+            <h5 class="text-center mb-3">确认执行命令</h5>
+            <div class="operation-info-text">
+                <p><strong>命令内容：</strong></p>
+                <pre class="bg-light p-2 rounded">${command}</pre>
+                <p><strong>超时时间：</strong> ${timeout} 秒</p>
+                <p class="mt-2"><small><i class="fas fa-exclamation-triangle text-warning"></i> 注意：确保命令符合安全规范，禁止执行危险操作。</small></p>
+            </div>
+        `;
+        
+        const buttons = [
+            { 
+                text: '取消', 
+                class: 'custom-modal-btn', 
+                onclick: 'closeCustomModal()' 
+            },
+            { 
+                text: '确认执行', 
+                class: 'custom-modal-btn custom-modal-btn-primary', 
+                onclick: 'closeCustomModal(); performExecuteCommand();' 
+            }
+        ];
+        
+        showCustomModal('执行命令确认', content, buttons);
+    }
+    
+    // 执行命令操作
+    function performExecuteCommand() {
+        const command = document.getElementById('command-input').value.trim();
+        const timeout = parseInt(document.getElementById('command-timeout').value) || 30;
+        const operator = document.getElementById('operator-name').value;
+        
+        showToast(`正在执行命令: ${command}`, 'info', '执行命令');
+        
+        fetch('/api/control/execute_command', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                params: {
+                    command: command,
+                    timeout: timeout
+                },
+                operator: operator
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const resultDiv = document.getElementById('command-result');
+            resultDiv.style.display = 'block';
+            
+            let html = '';
+            if (data.success) {
+                html = `
+                    <div class="alert alert-success">
+                        <h6><i class="fas fa-check-circle"></i> 命令执行成功</h6>
+                        <p>命令: <code>${command}</code></p>
+                        <p>返回码: ${data.return_code || 0}</p>
+                `;
+                
+                if (data.output) {
+                    html += `
+                        <div class="mt-2">
+                            <h6>输出:</h6>
+                            <pre class="bg-dark text-light p-2 rounded" style="max-height: 300px; overflow-y: auto;">${data.output}</pre>
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            } else {
+                html = `
+                    <div class="alert alert-danger">
+                        <h6><i class="fas fa-times-circle"></i> 命令执行失败</h6>
+                        <p>命令: <code>${command}</code></p>
+                        <p>错误: ${data.error || '未知错误'}</p>
+                `;
+                
+                if (data.output) {
+                    html += `
+                        <div class="mt-2">
+                            <h6>输出:</h6>
+                            <pre class="bg-dark text-light p-2 rounded" style="max-height: 300px; overflow-y: auto;">${data.output}</pre>
+                        </div>
+                    `;
+                }
+                
+                html += `</div>`;
+            }
+            
+            resultDiv.innerHTML = html;
+            
+            // 滚动到结果区域
+            resultDiv.scrollIntoView({behavior: 'smooth'});
+            
+            // 刷新操作记录
+            setTimeout(() => {
+                loadRecentOperations(10);
+            }, 1000);
+        })
+        .catch(error => {
+            showResultModal('请求失败', `无法连接到服务器：${error.toString()}`, 'error');
+        });
+    }
+    
+    // 更新executeCommand函数使用弹窗
+    function executeCustomCommand() {
+        showExecuteCommandModal();
+    }
+    
+    // ==================== 初始化页面 ====================
+    function initControlPage() {
+        console.log('开始初始化控制页面...');
+
+        // 无论模式，先加载配置（后续模式切换时可用）
+        loadNodeConfig();
+        loadServiceConfig();
+        
+        fetch('/api/control/mode')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('获取模式数据:', data);
+                
+                if (data.success) {
+                    currentMode = data.mode;
+                    systemDetails = data.details || {};
+                    console.log(`当前系统模式: ${currentMode}, 详情:`, systemDetails);
+                } else {
+                    console.error('获取系统模式失败:', data.error);
+                    currentMode = 'development';
+                    systemDetails = {
+                        operation_mode: 'development',
+                        detected_by: 'fallback',
+                        environment: 'unknown'
+                    };
+                }
+                
+                // 更新UI
+                updateModeDisplay();
+                toggleCardsByMode();
+                loadModeSpecificContent();
+                // showModeIndicator();
+                var modeEl = document.getElementById('sys-mode-ctl');
+                if (modeEl) {
+                    modeEl.textContent = currentMode === 'development' ? '🔧 开发模式' : '🏭 部署模式';
+                }
+                updateControlButtons();
+                
+                // 加载服务和统计信息
+                if (currentMode === 'deployment') {
+                    loadServices();
+                }                
+                loadRecentOperations(10);
+                
+                console.log('控制页面初始化完成');
+            })
+            .catch(error => {
+                console.error('获取系统模式失败:', error);
+                currentMode = 'development';
+                systemDetails = {
+                    operation_mode: 'development',
+                    detected_by: 'error_fallback',
+                    environment: 'unknown'
+                };
+                
+                // 即使API失败，也更新UI
+                updateModeDisplay();
+                toggleCardsByMode();
+                // showModeIndicator();
+                var modeEl = document.getElementById('sys-mode-ctl');
+                if (modeEl) {
+                    modeEl.textContent = '🔧 开发模式（默认）';
+                }
+                updateControlButtons();
+                
+                // 显示错误通知
+                showToast('无法获取系统模式，使用默认开发模式', 'warning', '初始化警告');
+            });
+    }
+    
+    // ==================== 快速操作功能实现 ====================
+    
+    // 系统检查 - 现在使用弹窗版本
+    function systemCheck() {
+            showSystemCheckModal();
+        }
+        
+        // 清理缓存 - 现在使用弹窗版本
+        function clearCache() {
+            showClearCacheModal();
+        }
+        
+        // 刷新状态
+        function refreshCurrentStatus() {
+            showToast('正在刷新系统状态...', 'info', '刷新状态');
+            
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    showToast('系统状态已更新', 'success', '状态刷新');                
+                    loadRecentOperations(10);
+                })
+                .catch(error => {
+                    showToast('无法获取系统状态', 'error', '刷新失败');
+                });
+        }
+        
+        // 查看操作日志
+    //     function viewOperationLogs() {
+    //     showToast('正在获取操作日志...', 'info', '加载中');
+        
+    //     // 增加防抖，避免频繁调用
+    //     if (window.logsLoading) {
+    //         console.log('操作日志正在加载中，跳过本次请求');
+    //         return;
+    //     }
+        
+    //     window.logsLoading = true;
+        
+    //     fetch('/api/control/logs?limit=50')
+    //         .then(response => {
+    //             if (!response.ok) {
+    //                 throw new Error(`HTTP错误: ${response.status}`);
+    //             }
+    //             return response.json();
+    //         })
+    //         .then(data => {
+    //             console.log('操作日志数据:', data);
+                
+    //             const logsTable = document.querySelector('#logsTable tbody');
+    //             logsTable.innerHTML = '';
+                
+    //             // 简化处理逻辑 - 始终使用相同的格式
+    //             let logs = [];
+                
+    //             // 统一处理返回格式
+    //             if (data && typeof data === 'object' && data.success === true) {
+    //                 if (Array.isArray(data.logs)) {
+    //                     logs = data.logs;
+    //                     console.log(`获取到 ${logs.length} 条操作日志`);
+    //                 } else {
+    //                     console.warn('返回的logs字段不是数组:', data.logs);
+    //                     logs = [];
+    //                 }
+    //             } else {
+    //                 console.warn('返回格式不正确:', data);
+    //                 showToast('操作日志格式不正确', 'error', '加载失败');
+    //                 window.logsLoading = false;
+    //                 return;
+    //             }
+                
+    //             if (logs.length === 0) {
+    //                 logsTable.innerHTML = '<tr><td colspan="6" class="text-center">暂无操作记录</td></tr>';
+    //                 showToast('暂无操作记录', 'info', '提示');
+    //             } else {
+    //                 logs.forEach(log => {
+    //                     // 确保日志字段存在
+    //                     const timestamp = log.timestamp || Date.now() / 1000;
+    //                     const time = new Date(timestamp * 1000).toLocaleString('zh-CN');
+    //                     const success = log.success !== undefined ? log.success : true;
+    //                     const action = log.action || '未知操作';
+    //                     const operator = log.operator || 'system';
+    //                     const params = log.params ? JSON.stringify(log.params) : '{}';
+    //                     const details = log.details || '';
+                        
+    //                     const row = document.createElement('tr');
+    //                     row.innerHTML = `
+    //                         <td>${time}</td>
+    //                         <td>${action}</td>
+    //                         <td>${operator}</td>
+    //                         <td><code class="small" style="max-width: 200px; word-break: break-all;">${params}</code></td>
+    //                         <td><span class="badge ${success ? 'bg-success' : 'bg-danger'}">${success ? '成功' : '失败'}</span></td>
+    //                         <td>${details}</td>
+    //                     `;
+    //                     logsTable.appendChild(row);
+    //                 });
+                    
+    //                 showToast(`已加载 ${logs.length} 条操作日志`, 'success', '加载成功');
+    //             }
+                
+    //             const modal = new bootstrap.Modal(document.getElementById('logsModal'));
+    //             modal.show();
+    //         })
+    //         .catch(error => {
+    //             console.error('加载操作日志失败:', error);
+    //             showToast('无法获取操作日志: ' + error.message, 'error', '加载失败');
+    //         })
+    //         .finally(() => {
+    //             window.logsLoading = false;
+    //         });
+    // }
+    
+    // ==================== 操作统计功能实现 ====================
+    
+    // function loadOperationStats() {
+    //     fetch('/api/control/stats')
+    //         .then(response => response.json())
+    //         .then(data => {
+    //             updateOperationStatsDisplay(data);
+    //         })
+    //         .catch(error => {
+    //             console.error('加载操作统计失败:', error);
+    //             updateOperationStatsDisplay({
+    //                 success: false,
+    //                 stats: {
+    //                     success_rate: 0,
+    //                     total_operations: 0,
+    //                     successful_operations: 0,
+    //                     by_action: {}
+    //                 }
+    //             });
+    //         });
+    // }
+    
+    // function updateOperationStatsDisplay(data) {
+    //     if (data.success) {
+    //         const stats = data.stats || {};
+    //         const successRate = stats.success_rate || 0;
+    //         const totalOps = stats.total_operations || 0;
+    //         const successfulOps = stats.successful_operations || 0;
+            
+    //         // 更新数字显示
+    //         document.getElementById('success-rate').textContent = `${successRate.toFixed(1)}%`;
+    //         document.getElementById('total-operations').textContent = totalOps;
+    //         document.getElementById('successful-operations').textContent = successfulOps;
+            
+    //         // 更新操作类型分布
+    //         const distributionDiv = document.getElementById('operation-type-distribution');
+    //         if (stats.by_action && Object.keys(stats.by_action).length > 0) {
+    //             let html = '<div class="list-group">';
+                
+    //             // 按数量排序
+    //             const sortedActions = Object.entries(stats.by_action)
+    //                 .sort((a, b) => b[1] - a[1])
+    //                 .slice(0, 5); // 显示前5个
+                
+    //             sortedActions.forEach(([action, count]) => {
+    //                 const percentage = totalOps > 0 ? ((count / totalOps) * 100).toFixed(1) : 0;
+    //                 html += `
+    //                     <div class="list-group-item d-flex justify-content-between align-items-center">
+    //                         <span class="text-truncate" title="${action}">${action}</span>
+    //                         <div>
+    //                             <span class="badge bg-primary rounded-pill me-2">${count}</span>
+    //                             <small class="text-muted">${percentage}%</small>
+    //                         </div>
+    //                     </div>
+    //                 `;
+    //             });
+                
+    //             html += '</div>';
+    //             distributionDiv.innerHTML = html;
+    //         } else {
+    //             distributionDiv.innerHTML = '<p class="text-center text-muted">暂无操作记录</p>';
+    //         }
+    //     } else {
+    //         // 显示错误状态
+    //         document.getElementById('success-rate').textContent = '0%';
+    //         document.getElementById('total-operations').textContent = '0';
+    //         document.getElementById('successful-operations').textContent = '0';
+    //         document.getElementById('operation-type-distribution').innerHTML = '<p class="text-center text-muted">加载失败</p>';
+    //     }
+    // }
+    
+    // ==================== 最近操作功能实现 ====================
+    
+    function renderNodeControlCard() {
+        const cardBody = document.querySelector('#node-control-card .card-body');
+        if (!cardBody) return;
+
+        let rowHtml = '<div class="row">';
+        nodeConfigCache.forEach(node => {
+            // 根据类型决定重启调用的函数和参数
+            let restartFunction, restartIcon, restartLabel;
+            if (node.type === 'rtsp') {
+                restartFunction = `opsNodeAction('rtsp_node', 'restart')`;   // P2：经 OPS 重启
+                restartIcon = 'fa-redo';
+                restartLabel = '重启推理节点';
+            } else if (node.type === 'rcs') {
+                restartFunction = `opsNodeAction('app_mgr', 'restart')`;   // P2：经 OPS 重启
+                restartIcon = 'fa-power-off';
+                restartLabel = '重启RCS管理器';
+            } else {
+                restartFunction = `AppDialog.alert({ title: '提示', message: '暂不支持重启 ${node.name}', type: 'warning' })`;
+                restartIcon = 'fa-question-circle';
+                restartLabel = '未知操作';
+            }
+            rowHtml += `
+                <div class="col-md-6">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6>${node.alias}</h6>
+                            <p class="text-muted">节点: ${node.name}</p>
+                            <button class="btn btn-danger w-100" onclick="${restartFunction}">
+                                <i class="fas ${restartIcon}"></i> ${restartLabel}
+                            </button>
+                            <small class="text-muted d-block mt-2">重启节点，适用于节点异常时</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        rowHtml += '</div>';
+        // 保留警告提示
+        rowHtml += `
+            <div class="alert alert-warning mt-3">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>注意：</strong> 重启节点会中断正在进行的任务，请谨慎操作！
+            </div>
+        `;
+        cardBody.innerHTML = rowHtml; // 注意：这会覆盖原有固定内容，需重新组织布局
+    }
+
+
+    function renderServiceManagementCard() {
+        // P2：节点运维卡由静态 HTML + loadOpsNodes()（OPS 权威源）渲染，不再覆盖旧服务卡
+        loadOpsNodes();
+        return;
+        /*
+        const cardBody = document.querySelector('#service-management-card .card-body');
+        if (!cardBody) return;
+
+        const serviceDescMap = {
+            'rtsp-yolo-infer.service': '视频推理节点',
+            'rcs_manager.service': '管理应用节点'
+        };
+
+        // 快速操作部分
+        let quickHtml = '<div class="row mb-4">';
+        serviceConfigCache.forEach(serviceName => {
+            let serviceAlias = serviceName.replace('.service', '').replace('rtsp-yolo', '推理').replace('rcs_manager', 'RCS管理器');
+            quickHtml += `
+                <div class="col-md-6">
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <h6>${serviceAlias}</h6>
+                            <p class="text-muted">
+                                ${serviceName}
+                                ${serviceDescMap[serviceName] ? `<span class="text-muted ms-1">(${serviceDescMap[serviceName]})</span>` : ''}
+                            </p>
+                            <button class="btn btn-accent btn-sm w-100" onclick="controlServiceAction('${serviceName}', 'restart')">
+                                <i class="fas fa-redo"></i> 重启服务
+                            </button>
+                            <small class="text-muted d-block mt-2">使用 systemctl restart ${serviceName}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        quickHtml += '</div>';
+
+        // 通用服务管理区域（下拉框）
+        let selectOptions = '';
+        serviceConfigCache.forEach(svc => {
+            const desc = serviceDescMap[svc] || '';
+            selectOptions += `<option value="${svc}">${svc}${desc ? ` (${desc})` : ''}</option>`;
+        });
+        const generalHtml = `
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="op-label">服务名称</label>
+                        <select class="form-select" id="service-select">
+                            ${selectOptions}
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="op-label">操作类型</label>
+                        <select class="form-select" id="action-select">
+                            <option value="start">启动</option>
+                            <option value="stop">停止</option>
+                            <option value="restart" selected>重启</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="mb-3">
+                        <label class="op-label">服务参数（可选）</label>
+                        <input type="text" class="form-control" id="service-params" placeholder="例如：--log-level=DEBUG">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label class="op-label">&nbsp;</label>
+                    <button class="btn btn-accent btn-sm w-100" onclick="controlService()">
+                        <i class="fas fa-play"></i> 执行服务操作
+                    </button>
+                </div>
+            </div>
+            <div id="service-result" class="mt-3" style="display: none;"></div>
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-info-circle"></i>
+                <strong>当前运行模式: <span id="mode-display-deploy">--</span></strong>
+            </div>
+        `;
+        cardBody.innerHTML = quickHtml + generalHtml;
+        */
+    }
+
+
+    // / 加载节点配置
+    function loadNodeConfig() {
+        fetch('/api/control/node_config')
+            .then(response => response.json())
+            .then(data => {
+                nodeConfigCache = data.nodes || [];
+                console.log('节点配置已加载:', nodeConfigCache);
+                // 如果是开发模式，立即刷新节点卡片
+                if (currentMode === 'development') {
+                    renderNodeControlCard();
+                }
+            })
+            .catch(error => console.error('加载节点配置失败:', error));
+    }
+
+    // 加载服务配置
+    function loadServiceConfig() {
+        fetch('/api/control/service_config')
+            .then(response => response.json())
+            .then(data => {
+                serviceConfigCache = data.services || [];
+                console.log('服务配置已加载:', serviceConfigCache);
+                // 如果是部署模式，立即刷新服务卡片
+                if (currentMode === 'deployment') {
+                    renderServiceManagementCard();
+                }
+            })
+            .catch(error => console.error('加载服务配置失败:', error));
+    }
+    
+    function loadRecentOperations(limit = 10) {
+        const limitNum = parseInt(limit) || 10;
+        
+        fetch(`/api/control/logs?limit=${limitNum}`)
+            .then(response => response.json())
+            .then(data => {
+                // 统一处理返回格式
+                let logs = [];
+                
+                if (Array.isArray(data)) {
+                    logs = data;
+                } else if (data && typeof data === 'object') {
+                    if (data.success && Array.isArray(data.logs)) {
+                        logs = data.logs;
+                    } else if (Array.isArray(data)) {
+                        logs = data;
+                    }
+                }
+                
+                operationLogs = logs;
+                updateRecentOperationsDisplay();
+            })
+            .catch(error => {
+                console.error('加载操作记录失败:', error);
+                operationLogs = [];
+                updateRecentOperationsDisplay();
+            });
+    }
+    
+    function updateRecentOperationsDisplay() {
+        const container = document.getElementById('recent-operations-list');
+        
+        if (!operationLogs || operationLogs.length === 0) {
+            container.innerHTML = '<p class="text-center text-muted">暂无操作记录</p>';
+            return;
+        }
+        
+        let html = '';
+        
+        // 显示最新的5条记录
+        const recentLogs = operationLogs.slice(0, 5);
+        
+        recentLogs.forEach(log => {
+            const time = new Date(log.timestamp * 1000);
+            const timeStr = time.toLocaleTimeString('zh-CN');
+            const dateStr = time.toLocaleDateString('zh-CN');
+            const success = log.success;
+            const action = log.action || '未知操作';
+            const operator = log.operator || 'system';
+            
+            // 美化操作名称
+            let actionName = action;
+            if (action === 'system_check') actionName = '系统检查';
+            else if (action === 'clear_cache') actionName = '清理缓存';
+            else if (action === 'execute_command') actionName = '执行命令';
+            
+            html += `
+                <div class="recent-operation-item">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h6 class="mb-1">${actionName}</h6>
+                            <small class="text-muted">操作员: ${operator}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="operation-time">${dateStr}<br>${timeStr}</div>
+                            <span class="op-badge ${success ? 'success' : 'failed'}">
+                                ${success ? '成功' : '失败'}
+                            </span>
+                        </div>
+                    </div>
+                </div>`;
+        });
+        
+        container.innerHTML = html;
+    }
+    
+    function loadMoreOperations() {
+        // 确保currentOperationLimit是数字
+        currentOperationLimit = typeof currentOperationLimit === 'number' ? currentOperationLimit : 10;
+        currentOperationLimit += 10;
+        
+        console.log(`加载更多操作记录，当前限制: ${currentOperationLimit}`);
+        loadRecentOperations(currentOperationLimit);
+        showToast(`正在加载更多操作记录... (${currentOperationLimit}条)`, 'info', '加载更多');
+    }
+    
+    // ==================== 模式相关函数 ====================
+    
+    // 更新模式显示
+    function updateModeDisplay() {
+        const modeDisplayDev = document.getElementById('mode-display-dev');
+        const modeDisplayDeploy = document.getElementById('mode-display-deploy');
+        const modeIndicator = document.getElementById('mode-indicator');
+        const modeText = document.getElementById('mode-text');
+        const modeHintDev = document.getElementById('mode-hint-dev');
+        
+        if (currentMode === 'development') {
+            // 开发模式
+            if (modeDisplayDev) modeDisplayDev.textContent = '开发模式';
+            if (modeDisplayDeploy) modeDisplayDeploy.textContent = '开发模式';
+            if (modeText) modeText.textContent = '开发模式';
+            if (modeHintDev) modeHintDev.textContent = '（服务管理仅适用于部署模式）';
+            
+            if (modeIndicator) {
+                modeIndicator.className = 'mode-indicator mode-development';
+            }
+        } else {
+            // 部署模式
+            if (modeDisplayDev) modeDisplayDev.textContent = '部署模式';
+            if (modeDisplayDeploy) modeDisplayDeploy.textContent = '部署模式';
+            if (modeText) modeText.textContent = '部署模式';
+            if (modeHintDev) modeHintDev.textContent = '（节点控制仅适用于开发模式）';
+            
+            if (modeIndicator) {
+                modeIndicator.className = 'mode-indicator mode-deployment';
+            }
+        }
+    }
+    
+    // ==================== 根据模式切换卡片显示 ====================
+    function toggleCardsByMode() {
+        const nodeControlCard = document.getElementById('node-control-card');
+        const serviceManagementCard = document.getElementById('service-management-card');
+        
+        console.log(`切换卡片显示 - 模式: ${currentMode}, 节点控制卡片: ${nodeControlCard}, 服务管理卡片: ${serviceManagementCard}`);
+        
+        if (currentMode === 'development') {
+            // 开发模式：显示节点控制，隐藏服务管理
+            if (nodeControlCard) {
+                console.log('显示节点控制卡片');
+                nodeControlCard.classList.remove('initially-hidden');
+                nodeControlCard.classList.add('card-visible');
+                nodeControlCard.style.display = 'block';
+            }
+            if (serviceManagementCard) {
+                console.log('隐藏服务管理卡片');
+                serviceManagementCard.classList.add('initially-hidden');
+                serviceManagementCard.classList.remove('card-visible');
+                serviceManagementCard.style.display = 'none';
+            }
+        } else {
+            // 部署模式：显示服务管理，隐藏节点控制
+            if (nodeControlCard) {
+                console.log('隐藏节点控制卡片');
+                nodeControlCard.classList.add('initially-hidden');
+                nodeControlCard.classList.remove('card-visible');
+                nodeControlCard.style.display = 'none';
+            }
+            if (serviceManagementCard) {
+                console.log('显示服务管理卡片');
+                serviceManagementCard.classList.remove('initially-hidden');
+                serviceManagementCard.classList.add('card-visible');
+                serviceManagementCard.style.display = 'block';
+            }
+        }
+    }
+    
+    // 显示卡片（带动画）
+    function showCard(cardElement) {
+        if (!cardElement) return;
+        
+        // 确保有必要的类
+        if (!cardElement.classList.contains('card-transition')) {
+            cardElement.classList.add('card-transition');
+        }
+        
+        // 移除隐藏类
+        cardElement.classList.remove('card-hidden');
+        cardElement.classList.add('card-visible');
+        
+        // 设置样式
+        cardElement.style.opacity = '1';
+        cardElement.style.height = 'auto';
+        cardElement.style.marginBottom = '20px';
+        cardElement.style.padding = '';
+        cardElement.style.border = '';
+        cardElement.style.overflow = '';
+        
+        // 触发重排以应用动画
+        void cardElement.offsetWidth;
+    }
+    
+    // 隐藏卡片（带动画）
+    function hideCard(cardElement) {
+        if (!cardElement) return;
+        
+        // 确保有必要的类
+        if (!cardElement.classList.contains('card-transition')) {
+            cardElement.classList.add('card-transition');
+        }
+        
+        // 设置样式开始过渡
+        cardElement.style.opacity = '0';
+        cardElement.style.height = '0';
+        cardElement.style.marginBottom = '0';
+        cardElement.style.padding = '0';
+        cardElement.style.border = 'none';
+        cardElement.style.overflow = 'hidden';
+        
+        setTimeout(() => {
+            cardElement.classList.add('card-hidden');
+            cardElement.classList.remove('card-visible');
+        }, 300);
+    }
+    
+    // 加载模式特定内容
+    function loadModeSpecificContent() {
+        if (currentMode === 'development') {
+            loadDevModeContent();
+        } else {
+            loadDeploymentModeContent();
+        }
+    }
+    
+    // 加载开发模式内容
+    function loadDevModeContent() {
+        renderNodeControlCard();   // 动态生成节点卡片
+        const deployFeatures = document.getElementById('deploy-specific-features');
+        if (deployFeatures) deployFeatures.style.display = 'none';
+    }
+    
+    // 加载部署模式内容
+    function loadDeploymentModeContent() {
+        renderServiceManagementCard();
+        const deployFeatures = document.getElementById('deploy-specific-features');
+        if (deployFeatures) deployFeatures.style.display = 'block';
+    }
+    
+    // 显示模式指示器
+    function showModeIndicator() {
+        const indicator = document.getElementById('mode-indicator');
+        indicator.classList.remove('d-none');
+        
+        // 添加点击事件查看详情
+        indicator.addEventListener('click', () => {
+            showModeDetails();
+        });
+    }
+    
+    // 显示模式详情
+    function showModeDetails() {
+        let detailsHtml = `
+            <h5>系统运行模式详情</h5>
+            <p><strong>当前模式：</strong> ${currentMode === 'development' ? '开发模式' : '部署模式'}</p>
+            <p><strong>检测方式：</strong> ${systemDetails.detected_by || '未知'}</p>
+            <p><strong>运行环境：</strong> ${systemDetails.environment || '未知'}</p>
+        `;
+        
+        if (systemDetails.services_available && systemDetails.services_available.length > 0) {
+            detailsHtml += `<p><strong>可用服务：</strong> ${systemDetails.services_available.join(', ')}</p>`;
+        }
+        
+        if (systemDetails.scripts_available && systemDetails.scripts_available.length > 0) {
+            detailsHtml += `<p><strong>可用脚本：</strong> ${systemDetails.scripts_available.join(', ')}</p>`;
+        }
+        
+        showResultModal('系统模式详情', detailsHtml, 'info');
+    }
+    
+    // ==================== 核心控制函数 ====================
+    
+
+    // 重启推理节点 - 防重复点击版
+    // 重启推理节点 - 使用SIGINT信号模拟Ctrl+C
+    function updateControlButtons() {
+        // 按钮已由动态渲染函数绑定，无需额外操作
+    }
+
+    // function updateControlButtons() {
+    //     console.log(`更新控制按钮 - 模式: ${currentMode}`);
+        
+    //     if (currentMode === 'development') {
+    //         // 开发模式：使用批量命令重启节点
+    //         const restartInferBtn = document.querySelector('button[onclick*="restart_infer_nodes"]');
+    //         const restartRCSBtn = document.querySelector('button[onclick*="restart_rcs_manager"]');
+            
+    //         if (restartInferBtn) {
+    //             restartInferBtn.onclick = function() {
+    //                 showRestartInferConfirm();
+    //             };
+    //         }
+            
+    //         if (restartRCSBtn) {
+    //             restartRCSBtn.onclick = function() {
+    //                 restartRCSManager();
+    //             };
+    //         }
+            
+    //         console.log('开发模式：配置批量命令重启');
+    //     } else {
+    //         // 部署模式：使用systemctl重启服务
+    //         const restartInferBtn = document.querySelector('button[onclick*="restart_infer_nodes"]');
+    //         const restartRCSBtn = document.querySelector('button[onclick*="restart_rcs_manager"]');
+            
+    //         if (restartInferBtn) {
+    //             restartInferBtn.onclick = function() {
+    //                 controlServiceAction('rtsp-yolo-infer.service', 'restart');
+    //             };
+    //         }
+            
+    //         if (restartRCSBtn) {
+    //             restartRCSBtn.onclick = function() {
+    //                 controlServiceAction('rcs-manager.service', 'restart');
+    //             };
+    //         }
+            
+    //         console.log('部署模式：配置systemctl重启服务');
+    //     }
+    // }
+
+    // ==================== P2：节点运维（OPS 统一控制，doc/P2 v2） ====================
+    // 加载 OPS 权威节点列表（填充快速操作显示名 + 节点下拉；状态表已迁移监控页 P3）
+    function loadOpsNodes() {
+        fetch('/api/ops/nodes')
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                var stateEl = document.getElementById('ops-integration-state');
+                if (!data || !data.success) {
+                    if (stateEl) stateEl.textContent = 'OPS 不可达（' + ((data && data.error) || '未知') + '）';
+                    if (data && data.offline) showToast('OPS 不可达，节点运维不可用', 'error');
+                    return;
+                }
+                if (stateEl) stateEl.textContent = '已连接';
+                var nodes = data.nodes || [];
+                // 骨架移除（doc/页面切换组件逐步加载-体验优化）
+                document.querySelectorAll('.skeleton-text').forEach(function(el) { el.classList.remove('skeleton-text'); });
+                // 快速操作显示名（v3：watchdog 状态中文映射，与监控页口径一致）
+                var wdText = function(st) {
+                    st = st || 'unknown';
+                    if (st === 'online') return '在线';
+                    if (st === 'degraded') return '降级';
+                    if (st === 'offline') return '离线';
+                    return '未知';
+                };
+                nodes.forEach(function(n) {
+                    if (n.name === 'rtsp_node') {
+                        var el = document.getElementById('ops-node-rtsp');
+                        if (el) el.textContent = n.display + '（' + n.name + '）· 看门狗:' + wdText(n.watchdog_status);
+                    } else if (n.name === 'app_mgr') {
+                        var el2 = document.getElementById('ops-node-appmgr');
+                        if (el2) el2.textContent = n.display + '（' + n.name + '）· 看门狗:' + wdText(n.watchdog_status);
+                    }
+                });
+                // 节点下拉
+                var select = document.getElementById('service-select');
+                if (select) {
+                    select.innerHTML = '<option value="">请选择节点...</option>' +
+                        nodes.filter(function(n) { return n.has_restart; })
+                             .map(function(n) { return '<option value="' + n.name + '">' + n.display + '（' + n.name + '）</option>'; })
+                             .join('');
+                }
+                // P3：节点状态表已迁移至状态监控页（doc/P3），此处仅保留操作功能
+            })
+            .catch(function(e) {
+                var stateEl = document.getElementById('ops-integration-state');
+                if (stateEl) stateEl.textContent = 'OPS 不可达';
+                showToast('获取 OPS 节点列表失败: ' + (e.message || e), 'error');
+            });
+    }
+
+    // 节点控制（OPS 单点执行；停止二次确认 danger，提示看门狗暂停自愈）
+    function opsNodeAction(nodeName, action) {
+        var actionText = { start: '启动', stop: '停止', restart: '重启' }[action] || action;
+        var doAction = function() {
+            showToast('正在' + actionText + '节点 ' + nodeName + '（经 OPS）...', 'info', '节点操作');
+            fetch('/api/ops/nodes/' + encodeURIComponent(nodeName) + '/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            })
+            .then(function(response) { return response.json(); })
+            .then(function(r) {
+                var box = document.getElementById('service-result');
+                if (box) {
+                    box.style.display = '';
+                    box.innerHTML = r.success
+                        ? '<div class="alert alert-success mb-0"><i class="fas fa-check-circle"></i> ' +
+                            actionText + ' ' + nodeName + ' 成功</div>'
+                        : '<div class="alert alert-danger mb-0"><i class="fas fa-times-circle"></i> ' +
+                            actionText + ' ' + nodeName + ' 失败：' + (r.error || '未知错误') +
+                            (r.paused ? '<br><small>OPS 已暂停该节点自愈，需手动启动恢复</small>' : '') + '</div>';
+                }
+                if (r.success) {
+                    showToast(actionText + ' ' + nodeName + ' 成功', 'success');
+                    setTimeout(loadOpsNodes, 3000);   // 稍后刷新节点状态
+                } else {
+                    showToast((r.error || actionText + '失败'), 'error');
+                }
+            })
+            .catch(function(e) {
+                showToast('请求异常: ' + (e.message || e), 'error');
+            });
+        };
+        if (action === 'stop') {
+            AppDialog.confirm({
+                title: '停止节点 ' + nodeName,
+                message: '确定要停止节点 ' + nodeName + ' 吗？\n停止后 OPS 看门狗将暂停该节点自愈，需手动启动恢复。',
+                confirmText: '确认停止', danger: true
+            }).then(function(ok) { if (ok) doAction(); });
+        } else {
+            AppDialog.confirm({
+                title: (actionText === '启动' ? '启动' : '重启') + '节点 ' + nodeName,
+                message: '确定要' + actionText + '节点 ' + nodeName + ' 吗？',
+                confirmText: actionText === '启动' ? '确认启动' : '确认重启',
+                danger: false
+            }).then(function(ok) { if (ok) doAction(); });
+        }
+    }
+
+    // 兼容旧接口名（灰度期）：loadServices 调 OPS 加载
+    function loadServices() { loadOpsNodes(); }
+    // function loadServices() {
+    //     if (currentMode !== 'deployment') return;
+        
+    //     fetch('/api/control/available_services')
+    //         .then(response => response.json())
+    //         .then(data => {
+    //             const serviceSelect = document.getElementById('service-select');
+    //             if (!serviceSelect) return;
+                
+    //             serviceSelect.innerHTML = '';
+                
+    //             if (data.success && data.services && data.services.length > 0) {
+    //                 data.services.forEach(service => {
+    //                     const option = document.createElement('option');
+    //                     option.value = service.name;
+    //                     option.textContent = `${service.name} - ${service.description || ''}`;
+    //                     if (service.status === 'active') {
+    //                         option.style.color = '#28a745';
+    //                     } else if (service.status === 'inactive') {
+    //                         option.style.color = '#dc3545';
+    //                     }
+    //                     serviceSelect.appendChild(option);
+    //                 });
+    //             } else {
+    //                 // 默认服务列表
+    //                 const defaultServices = [
+    //                     { name: 'rtsp-yolo-infer.service', description: '视频推理服务' },
+    //                     { name: 'rcs-manager.service', description: 'RCS管理系统服务' },
+    //                     { name: 'web-monitor.service', description: 'Web监控服务' }
+    //                 ];
+                    
+    //                 defaultServices.forEach(service => {
+    //                     const option = document.createElement('option');
+    //                     option.value = service.name;
+    //                     option.textContent = `${service.name} - ${service.description}`;
+    //                     serviceSelect.appendChild(option);
+    //                 });
+    //             }
+    //         })
+    //         .catch(error => {
+    //             console.error('获取服务列表失败:', error);
+    //         });
+    // }
+
+
+    // ==================== 部署模式：执行服务操作 ====================
+    function controlService() {
+        const service = document.getElementById('service-select').value;
+        const action = document.getElementById('action-select').value;
+        
+        if (!service) {
+            showToast('请先选择节点', 'error', '错误');
+            return;
+        }
+        
+        opsNodeAction(service, action);
+    }
+
+    // 在页面加载时获取操作限制
+    async function loadOperationLimits() {
+        try {
+            const response = await fetch('/api/control/limits');
+            const data = await response.json();
+            
+            if (data.success) {
+                // 更新全局变量
+                window.currentOperationLimit = {
+                    limits: data.limits,
+                    currentUsage: data.current_usage,
+                    available: data.available
+                };
+                
+                // 更新UI显示
+                updateOperationLimitsUI(data);
+            }
+        } catch (error) {
+            console.error('加载操作限制失败:', error);
+            // 使用默认值
+            window.currentOperationLimit = {
+                limits: { max_per_minute: 10, max_per_hour: 50 },
+                currentUsage: { minute: 0, hour: 0 },
+                available: { minute: 10, hour: 50 }
+            };
+        }
+    }
+
+    // ==================== 操作限制UI更新 ====================
+    function updateOperationLimitsUI(data) {
+        console.log('操作限制信息已更新:', data);
+        
+        // 如果有UI元素需要显示操作限制，可以在这里更新
+        if (data.limits) {
+            const limitsInfo = document.getElementById('limits-info');
+            if (limitsInfo) {
+                limitsInfo.innerHTML = `
+                    <small class="text-muted">
+                        每分钟最多 ${data.limits.max_per_minute} 次操作，每小时最多 ${data.limits.max_per_hour} 次操作
+                    </small>
+                `;
+            }
+        }
+        
+        if (data.current_usage) {
+            console.log(`当前使用情况: 分钟=${data.current_usage.minute}, 小时=${data.current_usage.hour}`);
+        }
+    }
+
+    // 调用限制检查
+    async function checkOperationAllowed(action) {
+        if (!window.currentOperationLimit) {
+            await loadOperationLimits();
+        }
+        
+        const limits = window.currentOperationLimit.limits;
+        const available = window.currentOperationLimit.available;
+        
+        if (available.minute <= 0) {
+            showToast('操作过于频繁，请稍后再试', 'warning');
+            return false;
+        }
+        
+        return true;
+    }
+
+    
+    
+    // 控制动作 - 通用控制函数
+    function controlAction(action) {
+        const operator = document.getElementById('operator-name').value;
+        let confirmTitle = '';
+        let confirmMessage = '';
+
+        switch(action) {
+            case 'system_check':
+                confirmTitle = '系统检查';
+                confirmMessage = '执行系统检查，包括磁盘、内存、CPU和网络状态？';
+                break;
+            case 'clear_cache':
+                confirmTitle = '清理缓存';
+                confirmMessage = '清理系统缓存和临时文件？';
+                break;
+            default:
+                confirmTitle = '确认操作';
+                confirmMessage = `确定要执行 ${action} 操作吗？`;
+        }
+
+        // 使用自定义弹窗代替 confirm
+        showConfirmationModal(
+            confirmTitle,
+            `<p>${confirmMessage}</p>`,
+            () => {
+                // 确认后的执行逻辑
+                fetch(`/api/control/${action}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        params: { infer_type: 'rtsp' },
+                        operator: operator
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    showOperationResult(action, data);
+                    setTimeout(() => {
+                        loadRecentOperations(10);
+                    }, 1000);
+                })
+                .catch(error => {
+                    showResultModal('❌ 请求失败', `无法连接到服务器：${error.toString()}`, 'error');
+                });
+            },
+            '确认'
+        );
+    }
+
+    
+    
+    // 执行命令
+    function executeCommand() {
+        const command = document.getElementById('command-input').value.trim();
+        const timeout = parseInt(document.getElementById('command-timeout').value) || 30;
+        const operator = document.getElementById('operator-name').value;
+
+        if (!command) {
+            showCustomModal('输入错误', '<p class="text-danger">请输入要执行的命令！</p>', [
+                { text: '确定', class: 'custom-modal-btn custom-modal-btn-primary', onclick: 'closeCustomModal()' }
+            ]);
+            return;
+        }
+
+        showConfirmationModal(
+            '执行命令',
+            `<p>确定要执行命令：<code>${command}</code> 吗？</p>
+            <p class="text-muted">超时时间: ${timeout} 秒</p>`,
+            () => {
+                showToast(`正在执行命令: ${command}`, 'info', '执行命令');
+
+                fetch('/api/control/execute_command', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        params: { command, timeout },
+                        operator: operator
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const resultDiv = document.getElementById('command-result');
+                    resultDiv.style.display = 'block';
+
+                    let html = '';
+                    if (data.success) {
+                        html = `
+                            <div class="alert alert-success">
+                                <h6><i class="fas fa-check-circle"></i> 命令执行成功</h6>
+                                <p>命令: <code>${command}</code></p>
+                                <p>返回码: ${data.return_code || 0}</p>
+                        `;
+                        if (data.output) {
+                            html += `
+                                <div class="mt-2">
+                                    <h6>输出:</h6>
+                                    <pre class="bg-dark text-light p-2 rounded" style="max-height: 300px; overflow-y: auto;">${data.output}</pre>
+                                </div>
+                            `;
+                        }
+                        html += `</div>`;
+                    } else {
+                        html = `
+                            <div class="alert alert-danger">
+                                <h6><i class="fas fa-times-circle"></i> 命令执行失败</h6>
+                                <p>命令: <code>${command}</code></p>
+                                <p>错误: ${data.error || '未知错误'}</p>
+                        `;
+                        if (data.output) {
+                            html += `
+                                <div class="mt-2">
+                                    <h6>输出:</h6>
+                                    <pre class="bg-dark text-light p-2 rounded" style="max-height: 300px; overflow-y: auto;">${data.output}</pre>
+                                </div>
+                            `;
+                        }
+                        html += `</div>`;
+                    }
+
+                    resultDiv.innerHTML = html;
+                    resultDiv.scrollIntoView({behavior: 'smooth'});
+
+                    setTimeout(() => {
+                        loadRecentOperations(10);
+                    }, 1000);
+                })
+                .catch(error => {
+                    showResultModal('❌ 请求失败', `无法连接到服务器：${error.toString()}`, 'error');
+                });
+            },
+            '确认执行'
+        );
+    }
+        
+    // 其他原有功能函数
+    function showOperationResult(action, data) {
+        let title = data.success ? '✅ 操作成功' : '❌ 操作失败';
+        let message = data.success ? '操作执行成功' : (data.error || '未知错误');
+        let type = data.success ? 'success' : 'error';
+        
+        showResultModal(title, `<p>${message}</p>`, type);
+    }    
+    
+    
+    function refreshSystemStatus() {
+        // 刷新系统状态（用于重启后的状态更新）
+        fetch('/api/status')
+            .then(response => response.json())
+            .then(data => {
+                console.log('系统状态已刷新');
+            })
+            .catch(error => {
+                console.error('刷新系统状态失败:', error);
+            });
+    }
+    
+    function switchOperator() {
+        const operators = [
+            {name: 'operator', role: '普通操作员'},
+            {name: 'admin', role: '管理员'}
+        ];
+        
+        const currentName = document.getElementById('operator-name').value;
+        const currentIndex = operators.findIndex(op => op.name === currentName);
+        const nextIndex = (currentIndex + 1) % operators.length;
+        const nextOp = operators[nextIndex];
+        
+        document.getElementById('operator-name').value = nextOp.name;
+        document.getElementById('operator-role').textContent = nextOp.role;
+        
+        showToast(`已切换为: ${nextOp.role} (${nextOp.name})`, 'info', '操作员切换');
+    }
+    
+    function exportLogs() {
+        // 创建CSV内容
+        let csvContent = "data:text/csv;charset=utf-8,";
+        csvContent += "时间,操作,操作员,参数,结果,详情\n";
+        
+        operationLogs.forEach(log => {
+            const time = new Date(log.timestamp * 1000).toLocaleString('zh-CN');
+            const success = log.success ? '成功' : '失败';
+            const params = log.params ? JSON.stringify(log.params).replace(/"/g, '""') : '';
+            const details = log.details ? log.details.replace(/"/g, '""') : '';
+            const row = [
+                `"${time}"`,
+                `"${log.action || ''}"`,
+                `"${log.operator || ''}"`,
+                `"${params}"`,
+                `"${success}"`,
+                `"${details}"`
+            ].join(',');
+            csvContent += row + "\n";
+        });
+        
+        // 创建下载链接
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `操作日志_${new Date().toISOString().split('T')[0]}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        showToast('操作日志已导出为CSV文件', 'success', '导出成功');
+    }
+    
+    function showResultModal(title, content, type = 'info') {
+        console.log(`显示结果模态框: ${title} - ${type}`);
+        
+        // 直接使用页面上已有的resultModal
+        const modalElement = document.getElementById('resultModal');
+        const modalTitle = document.getElementById('resultModalTitle');
+        const modalContent = document.getElementById('resultModalContent');
+        
+        if (!modalElement || !modalTitle || !modalContent) {
+            console.error('找不到结果模态框元素');
+            showToast('找不到模态框元素', 'error', '错误');
+            return;
+        }
+        
+        // 设置标题和内容
+        modalTitle.textContent = title;
+        
+        // 根据类型设置标题样式
+        modalTitle.className = 'modal-title';
+        if (type === 'success') {
+            modalTitle.classList.add('text-success');
+        } else if (type === 'error') {
+            modalTitle.classList.add('text-danger');
+        } else if (type === 'warning') {
+            modalTitle.classList.add('text-warning');
+        } else {
+            modalTitle.classList.add('text-info');
+        }
+        
+        // 设置内容
+        modalContent.innerHTML = content;
+        
+        // 显示模态框
+        const modal = bootstrap.Modal.getInstance(modalElement) || new bootstrap.Modal(modalElement);
+        modal.show();
+    }
+    
+    function showLoading(title, message) {
+        // 显示加载提示
+        showToast(message, 'info', title);
+    }
+    
+    // 修改确认模态框函数，支持取消回调
+    function showConfirmationModal(title, content, confirmCallback, confirmText = '确认', cancelCallback = null) {
+        const modalHtml = `
+            <div class="modal fade" id="confirmationModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">${title}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            ${content}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" id="cancelBtn">取消</button>
+                            <button type="button" class="btn btn-primary" id="confirmBtn">${confirmText}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // 移除现有模态框
+        const existingModal = document.getElementById('confirmationModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        
+        // 添加新模态框
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        
+        // 显示模态框
+        const modalElement = document.getElementById('confirmationModal');
+        const modal = new bootstrap.Modal(modalElement);
+        modal.show();
+        
+        // 绑定确认按钮事件
+        document.getElementById('confirmBtn').onclick = function() {
+            confirmCallback();
+            modal.hide();
+        };
+        
+        // 绑定取消按钮事件
+        document.getElementById('cancelBtn').onclick = function() {
+            if (cancelCallback) {
+                cancelCallback();
+            }
+            modal.hide();
+        };
+    }
+        
+    
+
+    // ==================== 页面初始化 ====================
+    // 在页面加载后调用初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('控制页面加载完成，开始初始化...');
+        
+        // 显示加载提示
+        showToast('正在初始化控制页面...', 'info', '加载中');
+        
+        // 初始化控制页面
+        setTimeout(() => {
+            initControlPage();
+        }, 100);
+        
+        // 设置定期刷新
+        setInterval(() => {
+            if (currentMode === 'deployment') {
+                loadServices();
+            }            
+        }, 60000);
+        
+        setInterval(() => {
+            loadRecentOperations(10);
+        }, 30000);
+    });
+</script>
+{% endblock %}

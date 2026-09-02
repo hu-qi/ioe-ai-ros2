@@ -1,0 +1,65 @@
+# Web 运维监控配置
+enabled: true
+network_interface: "eth0"
+host: "0.0.0.0"
+port: 9183
+operation_mode: "deployment"
+debug: true
+auth_required: false
+session_timeout: 3600
+
+# ===== P2：OPS 统一节点控制（doc/P2 v2，配置 yaml 驱动） =====
+# 节点列表/状态/控制统一从 OPS 获取（权威源，无本地映射）；display_map 仅覆盖 UI 展示名
+ops_integration:
+  enabled: true
+  base_url: "http://127.0.0.1:1818"    # 同机部署；多设备集群时可为设备级/多 OPS 端点（扩展预留）
+  timeout_s: 10
+  display_map: {}                       # 可选：OPS 节点名 → UI 展示名（缺省直接用 OPS 节点名）
+
+node_aliases:
+  "/app_mgr_object": "RCS管理节点"
+  "/rtsp_multi_inference": "视频推理节点"
+
+channel_aliases:
+  "device_01_channel_0": "通道0信号"
+  "device_01_channel_1": "通道1信号"
+  "device_01_channel_2": "通道2信号"
+
+callback_server:
+  host: "127.0.0.1"
+  port: 8080
+  base_path: "/eyeSky/robot/reporter"
+
+# P2：dev_scripts / deployment_services 已移除（节点/服务控制统一经 OPS）
+monitor_interval: 5
+alarm_check_interval: 10
+broadcast_interval: 12.0
+
+alarm_config:
+  max_alarms: 1000
+  retention_days: 30
+  auto_recovery: true
+  recovery_delay: 10.0
+  max_recovery_attempts: 3
+  recovery_cooldown: 300.0
+
+web_config:
+  title: "天眼运维监控系统"
+  theme: "default"
+  auto_refresh: true
+  refresh_interval: 10
+
+# P2：node_names 已移除（节点/服务控制统一经 OPS）
+
+# P4 v2：标定配置以 OPS 为权威（/api/calibration/status 的 channel_count/topic_base/device_id/target_node 自动同步），
+# 以下字段仅作降级初始值（OPS 不可达时使用），正常无需手动维护（doc/P4 §9）
+calibration:
+  enabled: true
+  image_topic_base: "/debug/rtsp_"
+  device_id: "dev01"
+  channel_count: 3
+  target_node: "/rtsp_multi_inference"
+  config_file: "/opt/jmSY-PROJECT/dev_sw/install/rtsp_multi_yolov_plugin/share/rtsp_multi_yolov_plugin/config/params.yaml"
+  auth_required: false
+  username: "admin"
+  password: "admin@123"

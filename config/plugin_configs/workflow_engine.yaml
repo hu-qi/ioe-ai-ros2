@@ -1,0 +1,5 @@
+# 工作流引擎插件配置
+auto_start: true
+definitions_dir: "config/workflows"
+db_path: "task_instances.db"
+max_concurrent: 10

@@ -1,0 +1,150 @@
+# ═══════════════════════════════════════════════════════════════════
+# 工作流: AGV 原子搬运任务
+# 描述: 从起始仓位搬运货物到终点仓位，含超时补偿与人工介入
+# 版本: 3
+# ═══════════════════════════════════════════════════════════════════
+
+name: "agv_transport_atomic"
+version: 3
+description: "增强 AGV 搬运: 告警分级 + 自动闭环 + 人工介入挂起态 (v3)"
+initial_state: "calling_rcs"
+max_concurrent: 10
+
+# ═══════════════════════════════════════════════════════════════════
+# 状态定义
+# ═══════════════════════════════════════════════════════════════════
+
+states:
+
+  # ──── 下发任务 ────
+  - id: calling_rcs
+    description: "调用 RCS genAgvSchedulingTask 下发任务"
+    action: invoke_gen_task
+    retry: 2
+    timeout: 10
+    transitions:
+      - event: "rcs_ack_ok"
+        target: "monitoring"
+      - event: "rcs_ack_fail"
+        target: "failed"
+      - event: "timeout"
+        target: "failed"
+
+  # ──── 监控执行（挂起等待回调） ────
+  - id: monitoring
+    description: "挂起等待回调, L0 告警仅记录, L1 告警短暂暂停, L2+ 转人工"
+    action: wait_for_completion
+    timeout: 100                              # 10分钟搬运超时
+    transitions:
+      - event: "callback_completed"
+        target: "releasing"
+      - event: "callback_exception"        # L2/L3 告警 → 人工介入
+        target: "manual_intervention"
+      - event: "warn_l1"                   # ← L1 警告 → 暂停自动恢复
+        target: "warn_pause"
+      - event: "warn_info"                 # ← L0 信息 → 继续等待
+        target: "monitoring"
+      - event: "user_cancel"               # ← 取消语义确定化
+        target: "failed"
+      - event: "timeout"
+        target: "compensating_query"
+
+  # ────  L1 告警暂停 ────
+  - id: warn_pause
+    description: "L1 警告暂停 60s, 超时自动恢复或升级"
+    action: wait_for_completion
+    timeout: 60
+    transitions:
+      - event: "callback_completed"        # 暂停期间任务完成
+        target: "releasing"
+      - event: "callback_exception"        # 暂停期间升级为 L2
+        target: "manual_intervention"
+      - event: "warn_l1"                   # 仍为 L1 → 继续等待
+        target: "warn_pause"
+      - event: "user_cancel"               # ← 新增
+        target: "failed"
+      - event: "timeout"                   # 60s 后自动恢复
+        target: "monitoring"
+
+  # ──── 超时补偿查询 ────
+  - id: compensating_query
+    description: "超时未收到回调，主动调用 queryTaskStatus 向 RCS 核实"
+    action: compensate_query
+    retry: 1
+    timeout: 10
+    transitions:
+      - event: "rcs_completed"
+        target: "releasing"
+      - event: "rcs_failed"
+        target: "manual_intervention"
+      - event: "rcs_running"
+        target: "monitoring"                  # 仍在执行，回到监控
+      - event: "max_retry_reached"     # ← 新增
+        target: "manual_intervention"
+      - event: "timeout"
+        target: "manual_intervention"
+
+  # ──── 释放资源 ────
+  - id: releasing
+    description: "释放叉车、仓位标记，更新数据库"
+    action: release_resources
+    transitions:
+      - event: "done"
+        target: "completed"
+
+  # ──── 终态：正常完成 ────
+  - id: completed
+    description: "搬运任务正常结束（进入终态时执行 on_exit）"
+    final: true
+    on_exit:
+      - action: publish_completed_event
+
+  # ──── 终态：系统失败 ────
+  - id: failed
+    description: "系统级失败（进入终态时执行 on_exit：释放资源 + 发布失败事件）"
+    final: true
+    on_exit:
+      - action: release_resources
+      - action: publish_failed_event
+
+  # ──── 挂起态：待人工介入（非终态，实例保持存活以接收恢复事件） ────
+  - id: manual_intervention
+    description: "等待人工处置 + task_monitor 自动检测恢复（挂起态，非终态）"
+    action: wait_for_completion
+    timeout: 0                                # 0 = 无限等待外部事件
+    on_enter:
+      - action: log_manual_entry
+      - action: publish_manual_event
+    transitions:
+      # 手动操作 (通过 Web Panel / ROS2 Service)
+      - event: "user_retry"
+        target: "calling_rcs"
+      - event: "user_cancel"
+        target: "failed"
+      # 自动闭环 (由 task_monitor 周期性注入)
+      - event: "auto_resolved"
+        target: "auto_recovery"
+      - event: "auto_failed"
+        target: "failed"
+      # 人工处置期间 RCS 直接回执 → 闭环（防止事件滞留）
+      - event: "callback_completed"
+        target: "auto_recovery"
+      - event: "callback_exception"
+        target: "failed"
+
+  # ──── 自动恢复完成 ────
+  - id: auto_recovery
+    description: "任务在人工介入期间自动恢复并完成（释放资源后进入终态）"
+    action: release_resources
+    transitions:
+      - event: "done"
+        target: "completed"
+
+# ═══════════════════════════════════════════════════════════════════
+# 全局异常处理（run()/引擎抛出未捕获异常时执行，幂等）
+# ═══════════════════════════════════════════════════════════════════
+
+on_error:
+  - action: log_error
+  - action: release_resources
+  - action: publish_failed_event

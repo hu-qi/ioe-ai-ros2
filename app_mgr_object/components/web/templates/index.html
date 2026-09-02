@@ -1,0 +1,421 @@
+{% extends "base.html" %}
+{% block title %}仪表盘 - 天眼运维监控{% endblock %}
+
+{% block extra_css %}
+<style>
+    .bay-zone-card .card-header, .dest-zone-card .card-header {
+        padding: 6px 12px; font-size: 11px;
+    }
+    /* 强制触发 loading */
+    #btn-force-trigger.loading { opacity: 0.6; pointer-events: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2">
+
+    <!-- ====== ROW 0: 系统状态条 ====== -->
+    <div class="system-bar">
+        <div class="sys-item"><i class="fas fa-server"></i> <span id="sys-mode">--</span></div>
+        <div class="sys-divider"></div>
+        <div class="sys-item"><span class="sys-dot green" id="sys-dot-nodes"></span> 节点 <span id="sys-nodes">--</span></div>
+        <div class="sys-item"><span class="sys-dot green" id="sys-dot-channels"></span> 通道 <span id="sys-channels">--</span></div>
+        <div class="sys-item"><span class="sys-dot green" id="sys-dot-agv"></span> AGV <span id="sys-agv">--</span></div>
+        <div class="sys-item" id="sys-agv-detail" style="display:none;"><span id="sys-agv1">--</span><span style="opacity:.5;margin:0 4px;">|</span><span id="sys-agv2">--</span></div>
+        <span class="sys-spacer"></span>
+        <div class="sys-item"><i class="fas fa-bell"></i> 告警 <span class="alarm-badge" id="sys-alarm-count">0</span></div>
+        <div class="sys-item" id="sys-clock"></div>
+    </div>
+
+    <!-- ====== ROW 1: 仓位热力图 (75%) + 任务操作 (25%) ====== -->
+    <div class="row g-2 mb-2">
+        <!-- 左侧 75% -->
+        <div class="col-lg-9 d-flex flex-column">
+            <!-- 仓位区域：用卡片作为背景框 -->
+            <div class="card flex-grow-1">
+                <!-- 仓位编排标题栏（doc/仓位名称类型编排：按钮放 header，不占仓位布局） -->
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="t-sec"><i class="fas fa-vector-square"></i> 仓位编排</span>
+                    <button class="btn btn-outline btn-sm" id="btn-arrange-dest" title="设置放置策略：巷道 FIFO/FILO 放置规则与始发↔目的对应">
+                        <i class="fas fa-sliders-h"></i> 放置策略
+                    </button>
+                </div>
+                <div class="card-body p-2" style="position:relative;">
+                    <!-- P1 任务配对连线 SVG 层（v5 全曲线，doc/P1 规范） -->
+                    <svg id="pair-lines" class="pair-lines" aria-hidden="true"></svg>
+                    <!-- P1 v6：浮动任务匹配信息面板（半透明 + 默认折叠 + 可拖动，doc/P1 规范 §13.5） -->
+                    <div id="pair-panel" class="pair-panel collapsed" aria-hidden="true">
+                        <div class="pair-panel-header" id="pair-panel-header">
+                            <span class="pp-title"><i class="fa fa-crosshairs"></i> 任务匹配</span>
+                            <span class="pp-badges" id="pp-badges">候选 <b id="pp-cnt-pending">0</b> · 进行 <b id="pp-cnt-active">0</b> · <span class="pp-err">异常 <b id="pp-cnt-error">0</b></span></span>
+                            <i class="fa fa-chevron-down pp-toggle"></i>
+                        </div>
+                        <div class="pair-panel-body" id="pair-panel-body"></div>
+                    </div>
+                    <div class="row g-2 h-100">
+                        <!-- 起始仓列 -->
+                        <div class="col-md-6 d-flex flex-column">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <div class="card bay-zone-card">
+                                        <div class="card-header"><span class="zone-tag tag-a">A</span> <span class="zone-title" data-zone="bay-zone-a">起始仓 A</span></div>
+                                        <div class="card-body p-1"><div class="bay-row" id="bay-zone-a"></div></div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card bay-zone-card">
+                                        <div class="card-header"><span class="zone-tag tag-b">B</span> <span class="zone-title" data-zone="bay-zone-b">起始仓 B</span></div>
+                                        <div class="card-body p-1"><div class="bay-row" id="bay-zone-b"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- C/D 区靠下 -->
+                            <div class="row g-2 mt-auto">
+                                <div class="col-6">
+                                    <div class="card bay-zone-card">
+                                        <div class="card-header"><span class="zone-tag tag-c">C</span> <span class="zone-title" data-zone="bay-zone-c">起始仓 C</span></div>
+                                        <div class="card-body p-1"><div class="bay-row" id="bay-zone-c"></div></div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="card bay-zone-card">
+                                        <div class="card-header"><span class="zone-tag tag-d">D</span> <span class="zone-title" data-zone="bay-zone-d">起始仓 D</span></div>
+                                        <div class="card-body p-1"><div class="bay-row" id="bay-zone-d"></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+    
+                        <!-- 目的仓列 -->
+                        <div class="col-md-6 d-flex flex-column justify-content-between" style="gap: 0.5rem;">
+                            <div class="card dest-zone-card">
+                                <div class="card-header"><span class="floor-tag">2F</span> <span class="zone-title" data-zone="dest-zone-2f">目的仓 2F</span></div>
+                                <div class="card-body p-1"><div class="bay-row" id="dest-zone-2f"></div></div>
+                            </div>
+                            <div class="card dest-zone-card">
+                                <div class="card-header"><span class="floor-tag">3F</span> <span class="zone-title" data-zone="dest-zone-3f">目的仓 3F</span></div>
+                                <div class="card-body p-1"><div class="bay-row" id="dest-zone-3f"></div></div>
+                            </div>
+                            <div class="card dest-zone-card">
+                                <div class="card-header"><span class="floor-tag">4F</span> <span class="zone-title" data-zone="dest-zone-4f">目的仓 4F</span></div>
+                                <div class="card-body p-1"><div class="bay-row" id="dest-zone-4f"></div></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+    
+            <!-- 任务信息栏（替代 AGV 状态卡，doc/AGV状态卡改造） -->
+            <div class="row g-2 mt-auto">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-tasks"></i> 任务信息</span>
+                            <button class="btn btn-outline btn-sm" id="btn-work-schedule" title="设置工作时间与节假日"><i class="fas fa-calendar-alt"></i> 工作时间</button>
+                        </div>
+                        <div class="card-body p-2"><div class="task-stats" id="task-stats"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    
+        <!-- 右侧 25%: 任务操作 -->
+        <div class="col-lg-3">
+            <div class="card h-100">
+                <div class="card-header"><i class="fas fa-sliders-h"></i> 任务操作</div>
+                <div class="card-body">
+                    <!-- 此处内容与原来完全一致，保持不变 -->
+                    <div class="op-section">
+                        <label class="op-label">强制触发任务</label>
+                        <select class="form-select form-select-sm mb-1" id="trigger-src"></select>
+                        <span class="op-arrow">→</span>
+                        <select class="form-select form-select-sm mb-2" id="trigger-dst"></select>
+                        <select class="form-select form-select-sm mb-1" id="trigger-robot">
+                            <option value="">-- 选择 AGV --</option>
+                        </select>
+                        <select class="form-select form-select-sm mb-2" id="trigger-cargo">
+                            <option value="1">类型1</option>
+                            <option value="2">类型2</option>
+                            <option value="3">类型3</option>
+                            <option value="4">类型4</option>
+                            <option value="5">类型5</option>
+                            <option value="6">类型6</option>
+                        </select>
+                        <button class="btn btn-accent btn-sm w-100" id="btn-force-trigger">
+                            <i class="fas fa-bolt"></i> 执行触发
+                        </button>
+                    </div>
+    
+                    <hr style="border-color: var(--border);">
+    
+                    <div class="op-section">
+                        <label class="op-label">查询任务</label>
+                        <input type="text" class="form-control form-control-sm mb-2" id="query-task-id" placeholder="输入 task_id">
+                        <button class="btn btn-outline btn-sm w-100" id="btn-query-task">
+                            <i class="fas fa-search"></i> 查询
+                        </button>
+                    </div>
+    
+                    <hr style="border-color: var(--border);">
+    
+                    <div class="op-section">
+                        <label class="op-label">取消 / 重试任务</label>
+                        <input type="text" class="form-control form-control-sm mb-2" id="ctrl-task-id" placeholder="输入 task_id">
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-danger btn-danger-sm flex-fill" id="btn-cancel-task">
+                                <i class="fas fa-times"></i> 取消
+                            </button>
+                            <button class="btn btn-warning btn-warning-sm flex-fill" id="btn-retry-task">
+                                <i class="fas fa-redo"></i> 重试
+                            </button>
+                        </div>
+                    </div>
+    
+                    <hr style="border-color: var(--border);">
+    
+                    <button class="btn btn-outline btn-sm w-100" id="btn-refresh-all">
+                        <i class="fas fa-sync-alt"></i> 刷新全部状态
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== ROW 2: 任务面板 ====== -->
+    <div class="row g-2 mb-2">
+        <div class="col-12">
+            <div class="card panel-glass">
+                <div class="card-header">
+                    <i class="fas fa-tasks"></i> 任务面板
+                    <span class="tab-bar-inline">
+                        <span class="tab active" data-tab="active">活跃 <b id="tab-active-count">0</b></span>
+                        <span class="tab" data-tab="queue">队列 <b id="tab-queue-count">0</b></span>
+                        <span class="tab" data-tab="history">最近完成 <b>5</b></span>
+                    </span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="task-table-wrap">
+                        <table class="table task-table mb-0">
+                            <thead><tr>
+                                <th>任务ID</th><th>路线</th><th>状态</th><th>AGV</th><th>创建时间</th><th>操作</th>
+                            </tr></thead>
+                            <tbody id="task-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====== ROW 3: 告警信息栏 (2/3) + 系统信息栏 (1/3) ====== -->
+    <div class="row g-2">
+
+        <!-- 左 2/3: 告警信息 -->
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-exclamation-triangle"></i> 告警信息
+                    <a href="/control" class="view-all-link">查看全部 →</a>
+                </div>
+                <div class="card-body p-2">
+                    <div class="alarm-list" id="alarm-list">
+                        <div class="alarm-empty">✅ 暂无告警</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右 1/3: 系统信息 -->
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header"><i class="fas fa-info-circle"></i> 系统信息</div>
+                <div class="card-body p-2" id="system-info-panel">
+                    <div style="color:var(--text-muted);text-align:center;padding:20px;">加载中...</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 仓位编辑 Modal -->
+    <div class="modal fade" id="bayEditModal" tabindex="-1">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title" id="bayEditTitle">编辑仓位类型</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div>
+                        <label class="op-label">显示类型 (1~6) <span class="text-dim">（仅显示定义，实际货物类型以 AI 检测为准）</span></label>
+                        <select class="form-select" id="bayEditCargoType">
+                            <option value="1">1 - 蓝色</option>
+                            <option value="2">2 - 绿色</option>
+                            <option value="3">3 - 橙色</option>
+                            <option value="4">4 - 紫色</option>
+                            <option value="5">5 - 青色</option>
+                            <option value="6">6 - 红色</option>
+                        </select>
+                    </div>
+                    <small class="text-dim d-block mt-2">仓位名称由 MES/规划固定，运行中不改名（调整需改配置重启）；显示类型写入 app_mgr yaml（实际货物类型以 AI 检测话题为准）。</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-accent btn-sm" id="btn-save-bay">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!-- 批量添加目的仓位 Modal 已移至 destArrangeModal 之后（置顶显示） -->
+
+    <!-- 放置策略 Modal（目的仓位维护 + 巷道 FIFO/FILO 配对策略，yaml 热加载） -->
+    <div class="modal fade" id="destArrangeModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title">放置策略</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="tab-bar-inline mb-2">
+                        <span class="tab active" data-dest-tab="dest-tab">目的仓位</span>
+                        <span class="tab" data-dest-tab="policy-tab">配对策略</span>
+                    </div>
+                    <div id="dest-tab">
+                        <div class="task-table-wrap mb-2" style="max-height:320px;overflow:auto;">
+                            <table class="table task-table table-sm compact-rows mb-0">
+                                <thead><tr><th>仓位编号</th><th>楼层</th><th>所属巷道</th><th>类型 (1~6)</th><th style="width:50px;"></th></tr></thead>
+                                <tbody id="dest-arrange-tbody"></tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-outline btn-sm" id="btn-add-dest-row"><i class="fas fa-plus"></i> 新增仓位</button>
+                        <button class="btn btn-outline btn-sm" id="btn-batch-dest"><i class="fas fa-list"></i> 批量添加</button>
+                        <small class="text-dim d-block mt-2">目的仓位（编号、楼层、所属巷道、类型）在此维护，保存后立即生效；实际货物类型以 AI 检测为准。</small>
+                    </div>
+                    <div id="policy-tab" style="display:none">
+                        <!-- 展示模式：策略查看区（doc/放置策略弹窗增强 §3.3） -->
+                        <div id="pairing-policy-summary" class="mb-2"></div>
+                        <div class="mb-2">
+                            <button class="btn btn-accent btn-sm" id="btn-edit-policy"><i class="fas fa-edit"></i> 编辑策略</button>
+                        </div>
+                        <!-- 编辑模式：策略编辑区 -->
+                        <div id="pairing-policy-edit" style="display:none;">
+                            <div class="mb-2 d-flex align-items-center gap-2">
+                                <button class="btn btn-outline btn-sm" id="btn-done-policy"><i class="fas fa-check"></i> 完成</button>
+                            </div>
+                            <div class="mt-2">
+                                <div class="mb-2 d-flex align-items-center gap-2">
+                                    <label class="op-label mb-0">预置模板</label>
+                                    <select id="policy-preset" class="form-select form-select-sm" style="width:200px;"></select>
+                                    <button class="btn btn-outline btn-sm" id="btn-apply-preset">应用模板</button>
+                                </div>
+                                <div class="mb-2 d-flex align-items-center gap-2">
+                                    <label class="op-label mb-0">默认策略</label>
+                                    <select id="policy-default-strategy" class="form-select form-select-sm" style="width:180px;">
+                                        <option value="fifo">fifo 先进先出</option>
+                                        <option value="filo">filo 先进后出</option>
+                                        <option value="any">any 任意空位</option>
+                                    </select>
+                                    <button class="btn btn-outline btn-sm ms-auto" id="btn-reset-policy">恢复默认</button>
+                                    <button class="btn btn-accent btn-sm" id="btn-save-policy">保存策略</button>
+                                </div>
+                                <div class="mb-2"><b>巷道</b> <button class="btn btn-outline btn-sm" id="btn-add-lane"><i class="fas fa-plus"></i> 新增巷道</button></div>
+                                <div class="task-table-wrap mb-2" style="max-height:180px;overflow:auto;">
+                                    <table class="table task-table mb-0">
+                                        <thead><tr><th>巷道ID</th><th>楼层</th><th>策略</th><th>仓位序列（入口→深处,逗号分隔）</th><th style="width:50px;"></th></tr></thead>
+                                        <tbody id="policy-lane-tbody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="mb-2"><b>类型规则</b> <button class="btn btn-outline btn-sm" id="btn-add-type-rule"><i class="fas fa-plus"></i> 新增</button></div>
+                                <div class="task-table-wrap mb-2" style="max-height:150px;overflow:auto;">
+                                    <table class="table task-table mb-0">
+                                        <thead><tr><th>类型(1~6)</th><th>巷道(逗号)</th><th>策略</th><th style="width:50px;"></th></tr></thead>
+                                        <tbody id="policy-type-tbody"></tbody>
+                                    </table>
+                                </div>
+                                <div class="mb-2"><b>始发规则（始发仓位 → 目的巷道对应）</b> <button class="btn btn-outline btn-sm" id="btn-add-bay-rule"><i class="fas fa-plus"></i> 新增</button></div>
+                                <div class="task-table-wrap mb-2" style="max-height:150px;overflow:auto;">
+                                    <table class="table task-table mb-0">
+                                        <thead><tr><th>始发仓位</th><th>巷道(逗号)</th><th>策略</th><th style="width:50px;"></th></tr></thead>
+                                        <tbody id="policy-bay-tbody"></tbody>
+                                    </table>
+                                </div>
+                                <small class="text-dim d-block">巷道中的仓位顺序即货物放入顺序（第一个为巷道入口）；「始发规则」可指定某始发仓位的货物只能放入所选巷道，一个始发仓位可对应多条巷道。保存后立即生效。</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-accent btn-sm" id="btn-save-dest">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 工作时间设置 Modal（doc/AGV状态卡改造与工作时间设置 §4.4） -->
+    <div class="modal fade" id="workScheduleModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title">工作时间与节假日设置</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <label class="op-label mb-0">启用工作时间条件</label>
+                        <input type="checkbox" class="form-check-input" id="ws-enabled" style="width:18px;height:18px;">
+                        <small class="text-dim">关闭后 AGV 见货即执行（不按工作时间限制）；开启后仅在工作时段内触发新任务，节假日当天不触发。</small>
+                    </div>
+                    <div class="mb-2"><b>节假日</b> <small class="text-dim">（点击日历日期标记/取消，红色=节假日）</small></div>
+                    <div id="ws-calendar" class="ws-calendar mb-2"></div>
+                    <div class="mb-1"><b>工作日时段</b> <small class="text-dim">（留空时段 = 当天休息）</small></div>
+                    <div id="ws-days" class="ws-days"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-accent btn-sm" id="btn-save-ws">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量添加目的仓位 Modal（置于 destArrangeModal 之后，z-index 2080 置顶） -->
+    <div class="modal fade" id="batchDestModal" tabindex="-1">
+        <div class="modal-dialog modal-md">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h6 class="modal-title">批量添加目的仓位</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <small class="d-block mb-2">每行一个仓位，格式：<b>编号,楼层,所属巷道,类型</b>（巷道可留空）。支持范围展开：<b>T2001~T2010,2,2F-L1,1</b> 一次生成 10 个仓位。</small>
+                    <textarea class="form-control form-control-sm" id="batch-dest-input" rows="8" placeholder="T2001,2,2F-L1,1&#10;T2002~T2010,2,2F-L1,1&#10;T3001,3,,4"></textarea>
+                    <small class="d-block mt-1">示例：T2001,2,2F-L1,1（编号T2001，2楼，巷道2F-L1，类型1）</small>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline btn-sm" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-accent btn-sm" id="btn-batch-dest-ok">添加</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- 图例 -->
+<div style="position:fixed;bottom:50px;left:16px;z-index:999;display:flex;gap:12px;align-items:center;font-size:10px;color:var(--text-muted);">
+    <span style="display:flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-green);opacity:0.35;border:1px dashed rgba(255,255,255,0.25);"></span> 空闲</span>
+    <span style="display:flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-blue);border:2px solid rgba(255,255,255,0.35);"></span> 已绑定</span>
+    <span style="display:flex;align-items:center;gap:3px;"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent-orange);position:relative;"></span> 执行中</span>
+    <span style="color:var(--accent-green);">● 空可用</span>
+    <span style="color:#3a3a4a;">● 占用</span>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/api.js"></script>
+<script src="/static/js/pair-lines.js"></script>
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}视频标定 - 天眼运维监控{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/calibration/style.css">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2">
+
+    <!-- ====== 工具栏卡片 ====== -->
+    <div class="card mb-2">
+        <div class="card-header"><i class="fas fa-vector-square"></i> 视频标定</div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="op-label">通道</label>
+                    <select id="channelSelect" class="form-select form-select-sm"></select>
+                </div>
+                <div class="col-auto">
+                    <label class="op-label">绘制模式</label>
+                    <select id="drawMode" class="form-select form-select-sm">
+                        <option value="polygon">多边形</option>
+                        <option value="rectangle">矩形</option>
+                        <option value="line">警戒线</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button id="panModeBtn" class="btn btn-outline btn-sm">🖐️ 查看</button>
+                </div>
+                <div class="col-auto">
+                    <button id="clearBtn" class="btn btn-outline btn-sm">🗑️ 清空当前区域</button>
+                </div>
+                <div class="col-auto">
+                    <button id="saveBtn" class="btn btn-accent btn-sm">💾 保存配置</button>
+                </div>
+                <div class="col-auto">
+                    <button id="loadBtn" class="btn btn-outline btn-sm">📂 加载已有配置</button>
+                </div>
+                <div class="col-auto">
+                    <button id="refreshBtn" class="btn btn-outline btn-sm">🔄 刷新画面</button>
+                </div>
+                <div class="col-auto">
+                    <span id="status" class="cal-status"></span>
+                    <span id="delayDisplay" class="cal-delay">延迟: --ms</span>
+                </div>
+                <div class="col-auto ms-auto">
+                    <div class="toggle-switch-container">
+                        <label class="switch-label">视频订阅</label>
+                        <label class="switch">
+                            <input type="checkbox" id="debugToggleCheckbox">
+                            <span class="slider round"></span>
+                        </label>
+                    </div>
+                    <span id="wsStatusDisplay" class="cal-ws-status"></span>
+                </div>
+            </div>
+            <div class="mt-2 cal-hint">视频流占用较多资源，建议调试时开启，不建议长时间使用</div>
+        </div>
+    </div>
+
+    <!-- ====== 画布卡片 ====== -->
+    <div class="card mb-2">
+        <div class="card-header"><i class="fas fa-video"></i> 视频画面</div>
+        <div class="card-body p-2">
+            <!-- 关键：closeFullscreen/fullscreenHint 必须在 canvasContainer 之外，
+                 否则会被 calibration.js setupCanvas() 的 innerHTML='' 清掉 -->
+            <button id="closeFullscreen" class="close-fullscreen-btn">✖ 关闭</button>
+            <span id="fullscreenHint" class="fullscreen-hint">按 ESC 或点击 ✖ 关闭</span>
+            <div class="canvas-container" id="canvasContainer"></div>
+        </div>
+    </div>
+
+    <!-- ====== 区域列表卡片 ====== -->
+    <div class="card">
+        <div class="card-header"><i class="fas fa-list"></i> 当前区域列表</div>
+        <div class="card-body p-2">
+            <ul id="areaList" class="cal-area-list"></ul>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/calibration/calibration.js"></script>
+{% endblock %}

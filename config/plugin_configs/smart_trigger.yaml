@@ -1,0 +1,51 @@
+﻿# 智能触发器插件配置
+auto_start: true
+enabled: true
+# 运行模式（doc/AGV状态卡改造-审查 §2.2）：development=工作时间任意放行；deployment=按工作时间+节假日
+operation_mode: "development"
+scan_interval: 2.0
+cargo_priority: [1, 2, 3, 4, 5, 6]
+# 每次扫描最多候选匹对数（doc/匹配更新机制方案 §3.2：仅 2 台 AGV，节奏控流）
+max_tasks_per_scan: 4
+# 全局任务数上限：队列中 + 运行中 ≤ 4（含执行中任务，doc/匹配更新机制方案 §3.2 澄清）
+max_total_tasks: 3
+max_queue_size: 50
+aging_ttl: 300.0
+pair_overrides: {}
+
+# ── YAML 配置化新增字段（doc/52 §5.3，均向后兼容，可热加载） ──
+# 每轮最多下发任务数（替代原硬编码 3）
+dispatch_per_round: 3
+# 始发扫描顺序：by_bay_id_asc（区域+编号升序，现状）/ by_bind_time_desc / custom
+src_scan_order:
+  mode: "by_bay_id_asc"
+  custom: []
+# AGV 选择策略：round_robin（轮询，现状）/ least_busy（空闲最早）/ specified（指定编号）
+agv:
+  select_strategy: "round_robin"
+  specified_ids: []
+  available_statuses: ["AVAILABLE"]
+# RCS 绑定失败重试（bay_status_fusion 生效）
+bind:
+  retry_enabled: false
+  retry_count: 3
+  retry_delay: 5.0
+
+# 工作时间条件（doc/AGV状态卡改造与工作时间设置）：enabled=false=不启用（见货即执行）；
+# holidays=节假日日期（当天不调度新任务，执行中不受影响）
+work_schedule:
+  enabled: true
+  holidays: []
+  schedules:
+    - day_of_week: "mon-fri"
+      start_time: "08:00"
+      end_time: "22:00"
+      enabled: true
+    - day_of_week: "sat"
+      start_time: "00:00"
+      end_time: "23:59"
+      enabled: true
+    - day_of_week: "sun"
+      start_time: "00:00"
+      end_time: "23:59"
+      enabled: true

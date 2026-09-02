@@ -1,0 +1,197 @@
+/* ============================================================
+   calibration/style.css — 标定页专用样式（继承首页 custom.css 主题）
+   说明：页面 chrome（导航/卡片/按钮/表单）由 custom.css 提供
+        本文件仅保留画布、开关、全屏、弹窗、区域列表等专用样式
+   ============================================================ */
+
+/* ---- 标定页提示文字 ---- */
+.cal-hint { font-size: 11px; color: var(--text-muted); }
+.cal-status { font-size: 12px; color: var(--text-secondary); }
+.cal-delay { margin-left: 10px; font-size: 12px; color: var(--text-muted); }
+.cal-ws-status { margin-left: 12px; font-size: 12px; }
+
+/* ---- 画布容器 ---- */
+.canvas-container {
+    position: relative;
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    min-height: 240px;
+    overflow: hidden;
+}
+
+.canvas-wrapper {
+    position: relative;
+    width: 100%;
+    background: #000;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.channel-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: #111;
+    cursor: crosshair;
+}
+
+/* 画布右下角放大按钮（JS 动态生成） */
+.toggle-fullscreen-btn {
+    position: absolute;
+    right: 8px; bottom: 8px;
+    width: 30px; height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(15,25,35,0.7);
+    color: var(--text-primary);
+    cursor: pointer;
+    z-index: 5;
+    transition: all 0.15s;
+}
+.toggle-fullscreen-btn:hover {
+    background: var(--accent-blue);
+    color: #fff;
+}
+
+/* 单路全屏模式 */
+.fullscreen-single .channel-canvas { width: 100%; }
+.fullscreen-single .canvas-wrapper.hidden { display: none; }
+
+/* 全屏关闭按钮/提示（默认隐藏，JS 控制 display） */
+.close-fullscreen-btn {
+    position: absolute;
+    top: 10px; right: 14px;
+    z-index: 20;
+    display: none;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(15,25,35,0.75);
+    color: #fff;
+    cursor: pointer;
+}
+.fullscreen-hint {
+    position: absolute;
+    top: 14px; left: 16px;
+    z-index: 20;
+    display: none;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* ---- 视频订阅开关（沿用原 switch/slider 结构） ---- */
+.toggle-switch-container {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.switch-label { font-size: 12px; color: var(--text-secondary); }
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 42px; height: 22px;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+    position: absolute;
+    cursor: pointer;
+    inset: 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    transition: 0.3s;
+    border-radius: 22px;
+}
+.slider::before {
+    content: '';
+    position: absolute;
+    height: 16px; width: 16px;
+    left: 2px; top: 2px;
+    background: var(--text-secondary);
+    transition: 0.3s;
+    border-radius: 50%;
+}
+.switch input:checked + .slider {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+.switch input:checked + .slider::before {
+    transform: translateX(20px);
+    background: #fff;
+}
+.slider.round { border-radius: 22px; }
+
+/* ---- 区域列表（与首页卡片风格一致） ---- */
+.cal-area-list {
+    list-style: none;
+    margin: 0; padding: 0;
+}
+.cal-area-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+.cal-area-list .area-name { font-size: 12px; }
+.cal-area-list button {
+    margin-left: 4px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.cal-area-list button:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-blue);
+}
+
+/* ---- 标定页自有弹窗（重命名等，JS 动态生成） ---- */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1050;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.modal-dialog {
+    width: 90%;
+    max-width: 420px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    padding: 18px 20px;
+    color: var(--text-primary);
+}
+.modal-dialog input {
+    width: 100%;
+    margin: 10px 0;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    padding: 6px 10px;
+}
+.modal-dialog button {
+    margin-right: 8px;
+    padding: 5px 14px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.modal-dialog button:last-child { margin-right: 0; }

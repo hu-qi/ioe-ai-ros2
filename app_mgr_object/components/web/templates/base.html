@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}天眼运维监控系统{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/font-awesome.css">
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/custom.css">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+    <!-- 页面加载指示（doc/页面切换组件逐步加载-体验优化） -->
+    <div id="top-loader" class="top-loader"><span class="bar"></span></div>
+
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-satellite"></i> 天眼运维监控
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item"><a class="nav-link" href="/" id="nav-home"><i class="fas fa-chart-pie"></i> 业务监控</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/monitor" id="nav-monitor"><i class="fas fa-broadcast-tower"></i> 状态监控</a></li>
+                    <li class="nav-item"><a class="nav-link" href="/control" id="nav-control"><i class="fas fa-sliders-h"></i> 运维控制</a></li>
+                </ul>
+
+                <!-- =====  视频标定入口（主题切换按钮前） ===== -->
+                <div class="navbar-nav me-2">
+                    <a class="nav-link" href="/calibration" id="nav-calibration"
+                    title="视频标定：绘制多边形/矩形/警戒线">
+                        <i class="fas fa-vector-square"></i> 标定
+                    </a>
+                </div>
+    
+                <!-- =====  主题切换按钮 ===== -->
+                <div class="navbar-nav me-2">
+                    <button id="theme-toggle"
+                        style="border:none;background:transparent;padding:8px 12px;cursor:pointer;
+                            color:var(--text-secondary);font-size:15px;line-height:1;
+                            transition:color 0.2s;"
+                        onmouseover="this.style.color='var(--text-primary)'"
+                        onmouseout="this.style.color='var(--text-secondary)'"
+                        title="切换主题">
+                        <i class="fas fa-sun" id="theme-icon"></i>
+                    </button>
+                </div>
+                <!-- ===== 主题切换按钮结束 ===== -->
+                <div class="navbar-text">
+                    <span id="sys-mode-display"></span>
+                    <span class="ms-3" id="current-time"></span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    {% block content %}{% endblock %}
+
+    <!-- Toast 容器 -->
+    <div id="toast-container"></div>
+
+    <!-- 统一弹窗 AppDialog（深色风格，Promise 风格；doc/前端统一弹窗与Toast提示框-方案.md） -->
+    <div class="modal fade" id="app-dialog" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="app-dialog-title">提示</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="app-dialog-body"></div>
+                    <div id="app-dialog-input-wrap" class="mt-2" style="display:none;">
+                        <input type="text" class="form-control" id="app-dialog-input">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline" id="app-dialog-cancel">取消</button>
+                    <button type="button" class="btn btn-accent" id="app-dialog-confirm">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WebSocket 状态 -->
+    <div class="ws-status" id="ws-status">
+        <i class="fas fa-plug"></i> <span id="ws-text">连接中...</span>
+    </div>
+
+    <!-- 脚本 -->
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/popper.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/websocket.js"></script>
+
+    <script>
+        // ===== 全局工具函数 =====
+
+        // 实时时钟
+        function updateClock() {
+            var now = new Date();
+            document.getElementById('current-time').textContent =
+                now.toLocaleString('zh-CN', {hour12: false});
+        }
+        updateClock();
+        setInterval(updateClock, 1000);       
+
+        // Toast 通知（doc/66：可选标题 title；全工程唯一 toast 入口）
+        function showToast(message, type, title) {
+            type = type || 'info';
+            var icons = { success: 'fa-check-circle', error: 'fa-times-circle',
+                         warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+            var toast = document.createElement('div');
+            toast.className = 'toast-item ' + type;
+            toast.innerHTML =
+                (title ? '<div class="toast-title">' + title + '</div>' : '') +
+                '<i class="fas ' + (icons[type] || icons.info) + '"></i> ' + message +
+                '<span class="toast-close" onclick="this.parentElement.remove()">&times;</span>';
+            document.getElementById('toast-container').appendChild(toast);
+            setTimeout(function() { if (toast.parentElement) toast.remove(); }, 5000);
+        }
+
+        // ===== 页面加载体验：Skeleton 工具 + pageLoaded 约定（doc/页面切换组件逐步加载-体验优化） =====
+        var topLoader = document.getElementById('top-loader');
+        window.pageLoaded = function() {
+            if (topLoader) topLoader.classList.add('hidden');
+        };
+        // 兜底：10s 后强制隐藏（避免异常时一直显示）
+        setTimeout(function() { if (topLoader) topLoader.classList.add('hidden'); }, 10000);
+
+        // Skeleton：容器填充骨架行，render 完成自动替换
+        window.Skeleton = {
+            fill: function(el, rows, cols) {
+                if (!el) return;
+                var html = '';
+                for (var r = 0; r < rows; r++) {
+                    html += '<div class="skeleton-row" style="width:' + (cols ? cols + '%' : '100%') + '"></div>';
+                }
+                el.innerHTML = html;
+            },
+            fillTable: function(el, rows) {
+                if (!el) return;
+                var html = '';
+                for (var r = 0; r < rows; r++) {
+                    html += '<tr><td colspan="4"><div class="skeleton-row" style="width:100%"></div></td></tr>';
+                }
+                el.innerHTML = html;
+            }
+        };
+
+        // ===== 全局统一弹窗 AppDialog（深色风格，Promise 风格） =====
+        // API: AppDialog.confirm({title,message,confirmText,cancelText,danger,icon}) -> Promise<boolean>
+        //      AppDialog.alert({title,message,type}) -> Promise（单按钮确定）
+        //      AppDialog.prompt({title,message,defaultValue,placeholder,confirmText}) -> Promise<string|null>
+        var AppDialog = (function() {
+            var modalEl = null, modal = null, resolveFn = null, cancelValue = false;
+
+            function ensure() {
+                if (modalEl) return true;
+                modalEl = document.getElementById('app-dialog');
+                if (!modalEl) return false;
+                modal = new bootstrap.Modal(modalEl, { backdrop: 'static' });
+                modalEl.addEventListener('hidden.bs.modal', function() {
+                    var r = resolveFn; resolveFn = null;
+                    if (r) r(cancelValue);
+                });
+                document.getElementById('app-dialog-confirm').addEventListener('click', function() {
+                    var r = resolveFn; resolveFn = null;
+                    var input = document.getElementById('app-dialog-input');
+                    var v = (input && input.style.display !== 'none') ? input.value : true;
+                    modal.hide();
+                    if (r) r(v);
+                });
+                document.getElementById('app-dialog-cancel').addEventListener('click', function() {
+                    var r = resolveFn; resolveFn = null;
+                    modal.hide();
+                    if (r) r(cancelValue);
+                });
+                return true;
+            }
+
+            function open(opts) {
+                if (!ensure()) return Promise.resolve(false);
+                var type = opts.type || '';
+                var iconMap = { info: 'fa-info-circle', success: 'fa-check-circle', warning: 'fa-exclamation-triangle', error: 'fa-times-circle' };
+                var colorMap = { info: 'text-info', success: 'text-success', warning: 'text-warning', error: 'text-danger' };
+                var icon = opts.icon || iconMap[type] || (opts.danger ? 'fa-exclamation-triangle' : 'fa-info-circle');
+                var titleEl = document.getElementById('app-dialog-title');
+                titleEl.innerHTML = '<i class="fas ' + icon + '"></i> ' + (opts.title || '提示');
+                titleEl.className = 'modal-title ' + (colorMap[type] || (opts.danger ? 'text-danger' : 'text-info'));
+                var body = document.getElementById('app-dialog-body');
+                body.innerHTML = String(opts.message == null ? '' : opts.message).replace(/\n/g, '<br>');
+                var inputWrap = document.getElementById('app-dialog-input-wrap');
+                var input = document.getElementById('app-dialog-input');
+                if (opts.prompt) {
+                    inputWrap.style.display = '';
+                    input.value = opts.defaultValue || '';
+                    input.placeholder = opts.placeholder || '';
+                } else {
+                    inputWrap.style.display = 'none';
+                }
+                var confirmBtn = document.getElementById('app-dialog-confirm');
+                var cancelBtn = document.getElementById('app-dialog-cancel');
+                if (opts.alert) { cancelBtn.style.display = 'none'; } else { cancelBtn.style.display = ''; }
+                confirmBtn.textContent = opts.confirmText || (opts.danger ? '确认执行' : '确定');
+                confirmBtn.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-accent');
+                cancelValue = opts.prompt ? null : false;
+                return new Promise(function(resolve) { resolveFn = resolve; modal.show(); });
+            }
+
+            return {
+                confirm: function(opts) { return open(opts || {}); },
+                alert: function(opts) { return open(Object.assign({}, opts || {}, { alert: true })); },
+                prompt: function(opts) { return open(Object.assign({}, opts || {}, { prompt: true })); }
+            };
+        })();
+
+        // ===== 全局 showResultModal（统一走 AppDialog.alert；修复 alarms 页无定义隐患） =====
+        function showResultModal(title, content, type) {
+            if (typeof AppDialog !== 'undefined' && AppDialog.alert) {
+                AppDialog.alert({ title: title, message: content, type: type || 'info' });
+            }
+        }
+
+        // 获取系统模式
+        function fetchSystemMode() {
+            fetch('/api/status')
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    var mode = (d.operation_mode || 'development');
+                    document.getElementById('sys-mode-display').textContent =
+                        mode === 'development' ? '🔧 开发模式' : '🏭 部署模式';
+                })
+                .catch(function() {
+                    document.getElementById('sys-mode-display').textContent = '🏭 部署模式';
+                });
+        }
+
+        // ===== 导航激活 =====
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchSystemMode();
+            WS.connect();
+
+            var path = window.location.pathname;
+            var map = { '/': 'nav-home', '/monitor': 'nav-monitor', '/control': 'nav-control','/calibration': 'nav-calibration' };
+            var id = map[path];
+            if (id) { var el = document.getElementById(id); if (el) el.classList.add('active'); }
+        });
+
+        // ===== 主题切换 =====
+        (function() {
+            var THEME_KEY = 'app-theme';
+            var html = document.documentElement;
+            var toggleBtn = document.getElementById('theme-toggle');
+            var icon = document.getElementById('theme-icon');
+
+            console.log('[Theme] init - toggleBtn found:', !!toggleBtn, 'icon found:', !!icon);
+
+            // 读取本地存储中的主题，默认 dark
+            var saved = localStorage.getItem(THEME_KEY);
+            var currentTheme = saved || 'dark';
+            applyTheme(currentTheme);
+
+            // 点击切换
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // 判断当前是否为浅色主题（因为深色时 data-theme 被移除，为 null）
+                    var isLight = html.getAttribute('data-theme') === 'light';
+                    var next = isLight ? 'dark' : 'light';
+                    console.log('[Theme] button clicked, switching to:', next);
+                    applyTheme(next);
+                    localStorage.setItem(THEME_KEY, next);
+                });
+            } else {
+                console.warn('[Theme] toggleBtn not found! Check id="theme-toggle"');
+            }
+
+            function applyTheme(theme) {
+                console.log('[Theme] applyTheme:', theme);
+                if (theme === 'light') {
+                    html.setAttribute('data-theme', 'light');
+                    if (icon) { icon.className = 'fas fa-moon'; }
+                    if (toggleBtn) { toggleBtn.title = '切换到深色主题'; }
+                } else {
+                    html.removeAttribute('data-theme');
+                    if (icon) { icon.className = 'fas fa-sun'; }
+                    if (toggleBtn) { toggleBtn.title = '切换到浅色主题'; }
+                }
+                console.log('[Theme] html data-theme:', html.getAttribute('data-theme'));
+            }
+        })();
+
+
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

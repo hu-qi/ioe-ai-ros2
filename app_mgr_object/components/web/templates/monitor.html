@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}状态监控 - 天眼运维监控{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2">
+
+    <!-- KPI 条 -->
+    <div class="system-bar" id="monitor-bar">
+        <div class="sys-item"><i class="fas fa-heartbeat"></i> 健康度 <b id="kpi-health">--</b>%</div>
+        <div class="sys-divider"></div>
+        <div class="sys-item"><span class="sys-dot green" id="dot-nodes"></span> 节点 <b id="kpi-nodes">--</b></div>
+        <div class="sys-item"><span class="sys-dot green" id="dot-channels"></span> 通道 <b id="kpi-channels">--</b></div>
+        <div class="sys-item"><span class="sys-dot green" id="dot-agv"></span> AGV <b id="kpi-agv">--</b></div>
+        <span class="sys-spacer"></span>
+        <div class="sys-item">WS 连接 <b id="kpi-ws">--</b></div>
+    </div>
+
+    <div class="row g-2">
+        <!-- 左列：系统健康趋势 + AGV 详情（AGV 在健康趋势下方，紧邻） -->
+        <div class="col-lg-6 d-flex flex-column">
+            <div class="card">
+                <div class="card-header"><i class="fas fa-chart-line"></i> 系统健康趋势</div>
+                <div class="card-body"><canvas id="healthChart" height="200"></canvas></div>
+            </div>
+            <div class="card mt-2">
+                <div class="card-header"><i class="fas fa-robot"></i> AGV 详情</div>
+                <div class="card-body p-0">
+                    <div class="task-table-wrap">
+                        <table class="table task-table mb-0" id="agv-table">
+                            <thead><tr><th>ID</th><th>状态</th><th>电量</th><th>位置</th><th>当前任务</th><th>更新时间</th></tr></thead>
+                            <tbody id="agv-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右列：节点状态 + 通道状态（通道在节点状态下方，紧邻） -->
+        <div class="col-lg-6 d-flex flex-column">
+            <div class="card">
+                <div class="card-header">
+                    <i class="fas fa-server"></i> 节点状态
+                    <span class="source-badge" id="nodes-source-badge">--</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="task-table-wrap">
+                        <table class="table task-table mb-0" id="nodes-table">
+                            <thead id="nodes-thead"><tr><th>节点</th><th>OPS 注册名</th><th>看门狗状态</th><th>健康类型</th></tr></thead>
+                            <tbody id="nodes-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card mt-2" id="channels-card">
+                <div class="card-header"><i class="fas fa-wave-square"></i> 通道状态</div>
+                <div class="card-body p-0">
+                    <div class="task-table-wrap">
+                        <table class="table task-table mb-0" id="channels-table">
+                            <thead><tr><th>通道</th><th>别名</th><th>信号</th><th>状态</th></tr></thead>
+                            <tbody id="channels-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/api.js"></script>
+<script src="/static/js/chart.umd.js"></script>
+<script src="/static/js/monitor.js"></script>
+{% endblock %}

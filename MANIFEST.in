@@ -1,0 +1,11 @@
+# 包含模板文件
+recursive-include app_mgr_object/components/web/templates *.html
+
+# 包含静态文件
+recursive-include app_mgr_object/components/web/static *
+
+# ROS配置文件
+include config/*.yaml
+include launch/*.py
+include resource/*
+include package.xml

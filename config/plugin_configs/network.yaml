@@ -1,0 +1,4 @@
+# 网络插件配置
+auto_start: true
+ros_network_interface: "eth0"
+api_network_interface: "eth1"

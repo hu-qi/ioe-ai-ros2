@@ -1,0 +1,10 @@
+# 任务状态监控插件配置
+auto_start: true
+enabled: true
+poll_interval: 10.0
+poll_timeout: 8.0
+log_retention_days: 90
+log_cleanup_interval: 604800.0
+manual_timeout: 600.0            # 人工介入超时升级告警阈值（s）
+manual_force_close_after: 1800.0 # 超时后再宽限时长，超期仍未终态则强制闭环（s）
+manual_unknown_max_rounds: 3     # RCS 无数据/未知状态连续轮数上限（30s/轮）
