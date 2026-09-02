@@ -1,6 +1,6 @@
 ﻿# 状态轮询插件配置
-auto_start: true
-enabled: true
+auto_start: false
+enabled: false
 robot_ids: [1001, 1002]
 robot_poll_interval: 3.0
 dest_poll_interval: 10.0

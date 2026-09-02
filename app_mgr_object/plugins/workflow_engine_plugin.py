@@ -398,6 +398,14 @@ class WorkflowEnginePlugin(BasePlugin):
     #  查询接口
     # ════════════════════════════════════════════════════
 
+    # ════════════════════════════════════════════════════
+    #  查询接口（供 business_collector / task_controller / task_monitor 调用）
+    # ════════════════════════════════════════════════════
+
+    def get_engine(self):
+        """返回引擎实例（插件本身即引擎），供 web 层查询工作流状态。"""
+        return self
+
     def get_instance(self, instance_id: str) -> Optional[WorkflowInstance]:
         with self._lock:
             return self._instances.get(instance_id)
@@ -406,6 +414,158 @@ class WorkflowEnginePlugin(BasePlugin):
         with self._lock:
             return [inst.to_dict() for inst in self._instances.values()
                     if include_finished or not inst.finished]
+
+    def get_active_instances(self) -> Dict[str, Dict[str, Any]]:
+        """返回 {instance_id: snapshot_dict}，仅含未完成实例。
+
+        snapshot_dict 字段（business_collector 期望）:
+          status, current_state, src_bay, dst_bay, robot_id, cargo_type, rcs_task_no, created_at
+        """
+        result: Dict[str, Dict[str, Any]] = {}
+        with self._lock:
+            for iid, inst in self._instances.items():
+                if inst.finished:
+                    continue
+                ctx = inst.context or {}
+                result[iid] = {
+                    'task_id': iid,
+                    'status': 'executing' if not inst.finished else 'completed',
+                    'current_state': inst.current_state,
+                    'src_bay': ctx.get('src_bay', ''),
+                    'dst_bay': ctx.get('dest_bay', ''),
+                    'robot_id': ctx.get('agv_id', ''),
+                    'cargo_type': ctx.get('cargo_type', 0),
+                    'rcs_task_no': ctx.get('rcs_task_no', ''),
+                    'created_at': inst.created_at,
+                }
+        return result
+
+    def get_instance_snapshot(self, instance_id: str) -> Optional[Dict[str, Any]]:
+        """返回单个实例的快照 dict，供 business_collector 兼容旧字符串列表路径。"""
+        with self._lock:
+            inst = self._instances.get(instance_id)
+        if inst is None:
+            return None
+        return {
+            'task_id': inst.instance_id,
+            'status': 'completed' if inst.finished else 'executing',
+            'current_state': inst.current_state,
+            'context': inst.context,
+            'created_at': inst.created_at,
+            'error': inst.error,
+        }
+
+    def get_all_instances_from_db(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+        """从内存实例列表分页返回（无 DB 时回退内存）。
+
+        business_collector:307 期望返回行列表，每行含
+          task_id, status, current_state, src_bay, dst_bay, robot_id, cargo_type, created_at
+        """
+        with self._lock:
+            all_insts = list(self._instances.values())
+        # 按创建时间倒序
+        all_insts.sort(key=lambda i: i.created_at, reverse=True)
+        page = all_insts[offset:offset + limit]
+        rows: List[Dict] = []
+        for inst in page:
+            ctx = inst.context or {}
+            rows.append({
+                'task_id': inst.instance_id,
+                'status': 'completed' if inst.finished else 'executing',
+                'current_state': inst.current_state,
+                'src_bay': ctx.get('src_bay', ''),
+                'dst_bay': ctx.get('dest_bay', ''),
+                'robot_id': ctx.get('agv_id', ''),
+                'cargo_type': ctx.get('cargo_type', 0),
+                'rcs_task_no': ctx.get('rcs_task_no', ''),
+                'created_at': inst.created_at,
+                'error': inst.error,
+            })
+        return rows
+
+    def count_today_completed(self, today: str) -> int:
+        """统计今日完成实例数（按 created_at 日期匹配 + finished）。"""
+        with self._lock:
+            return sum(1 for i in self._instances.values()
+                       if i.finished and time.strftime('%Y-%m-%d', time.localtime(i.created_at)) == today)
+
+    def count_today_failed(self, today: str) -> int:
+        """统计今日失败实例数（finished + error 非空）。"""
+        with self._lock:
+            return sum(1 for i in self._instances.values()
+                       if i.finished and i.error
+                       and time.strftime('%Y-%m-%d', time.localtime(i.created_at)) == today)
+
+    def get_active_monitoring_instances(self) -> Dict[str, Dict[str, Any]]:
+        """返回当前处于 monitoring / warn_pause 状态的实例 dict。
+
+        task_monitor_plugin:133 期望 {instance_id: snapshot}。
+        """
+        monitor_states = {'monitoring', 'warn_pause'}
+        result: Dict[str, Dict[str, Any]] = {}
+        with self._lock:
+            for iid, inst in self._instances.items():
+                if inst.finished:
+                    continue
+                if inst.current_state in monitor_states:
+                    ctx = inst.context or {}
+                    result[iid] = {
+                        'task_id': iid,
+                        'current_state': inst.current_state,
+                        'src_bay': ctx.get('src_bay', ''),
+                        'dst_bay': ctx.get('dest_bay', ''),
+                        'robot_id': ctx.get('agv_id', ''),
+                        'cargo_type': ctx.get('cargo_type', 0),
+                        'rcs_task_no': ctx.get('rcs_task_no', ''),
+                        'created_at': inst.created_at,
+                    }
+        return result
+
+    def get_all_active_monitorable_instances(self) -> Dict[str, Dict[str, Any]]:
+        """返回所有可监控的活跃实例（monitoring / warn_pause / manual_intervention）。
+
+        task_monitor_plugin:159 期望 {instance_id: snapshot}。
+        """
+        monitorable = {'monitoring', 'warn_pause', 'manual_intervention'}
+        result: Dict[str, Dict[str, Any]] = {}
+        with self._lock:
+            for iid, inst in self._instances.items():
+                if inst.finished:
+                    continue
+                if inst.current_state in monitorable:
+                    ctx = inst.context or {}
+                    result[iid] = {
+                        'task_id': iid,
+                        'current_state': inst.current_state,
+                        'src_bay': ctx.get('src_bay', ''),
+                        'dst_bay': ctx.get('dest_bay', ''),
+                        'robot_id': ctx.get('agv_id', ''),
+                        'cargo_type': ctx.get('cargo_type', 0),
+                        'rcs_task_no': ctx.get('rcs_task_no', ''),
+                        'created_at': inst.created_at,
+                    }
+        return result
+
+    def cleanup_old_logs(self, retention_days: int = 90) -> Dict[str, int]:
+        """清理超过保留天数的已完成实例（骨架实现，内存模式）。
+
+        task_monitor_plugin:389 期望返回 {'total_deleted': N}。
+        本实现从内存 _instances 字典中删除 created_at 早于 retention_days 的已完成实例。
+        """
+        cutoff = time.time() - retention_days * 86400
+        deleted = 0
+        with self._lock:
+            to_remove = []
+            for iid, inst in self._instances.items():
+                if inst.finished and inst.created_at < cutoff:
+                    to_remove.append(iid)
+            for iid in to_remove:
+                del self._instances[iid]
+                deleted += 1
+        if deleted:
+            self.logger.info(
+                f"日志清理: 删除 {deleted} 个已完成实例 (保留 {retention_days} 天)")
+        return {'total_deleted': deleted}
 
     def get_status(self) -> Dict[str, Any]:
         base = super().get_status()

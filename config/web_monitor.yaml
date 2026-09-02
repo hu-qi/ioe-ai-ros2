@@ -11,7 +11,7 @@ session_timeout: 3600
 # ===== P2：OPS 统一节点控制（doc/P2 v2，配置 yaml 驱动） =====
 # 节点列表/状态/控制统一从 OPS 获取（权威源，无本地映射）；display_map 仅覆盖 UI 展示名
 ops_integration:
-  enabled: true
+  enabled: false
   base_url: "http://127.0.0.1:1818"    # 同机部署；多设备集群时可为设备级/多 OPS 端点（扩展预留）
   timeout_s: 10
   display_map: {}                       # 可选：OPS 节点名 → UI 展示名（缺省直接用 OPS 节点名）

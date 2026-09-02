@@ -1,6 +1,6 @@
 # RCS 接口适配器配置
-auto_start: true
-enabled: true
+auto_start: false
+enabled: false
 rcs_base_url: "http://192.168.31.249:8080"
 rcs_timeout: 10.0
 rcs_max_retries: 2
