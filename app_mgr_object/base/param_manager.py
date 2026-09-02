@@ -68,7 +68,7 @@ class ParamManager:
             ('log_level', 'info'),
             ('operation_mode', 'development'),
             ('ros_network_interface', 'eth0'),
-            ('api_network_interface', 'eth1'),
+            ('api_network_interface', 'eth0'),
             ('person_change_stable_time', 10.0),
             ('state_change_offset', 5.0),
             ('state_change_stable_time', 15.0),

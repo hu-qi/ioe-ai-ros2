@@ -1,7 +1,7 @@
 # RCS 接口适配器配置
 auto_start: true
 enabled: true
-rcs_base_url: "http://192.168.31.191:8080"
+rcs_base_url: "http://192.168.31.249:8080"
 rcs_timeout: 10.0
 rcs_max_retries: 2
 test_robot_ids: [1001, 1002]

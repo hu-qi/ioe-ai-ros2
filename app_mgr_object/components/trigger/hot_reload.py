@@ -33,15 +33,18 @@ class HotReloadRegistry:
         self.logger = logger
         self._entries: Dict[str, tuple] = {}  # key -> (validator, applier)
 
-    def register(self, key: str, validator: Callable[[Any], bool],
+    def register(self, section: str, key: str,
+                 validator: Callable[[Any], bool],
                  applier: Callable[[Any], Any]) -> None:
         """注册一个热加载项。
 
         Args:
+            section: 配置段名（用于日志分组）
             key: 配置键名
             validator: 校验函数，返回 bool
             applier: 应用函数，接收校验通过的新值
         """
+        self.logger = section
         self._entries[key] = (validator, applier)
 
     def apply(self, name: str, cfg: Any) -> Any:
