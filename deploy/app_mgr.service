@@ -1,0 +1,32 @@
+[Unit]
+Description=ROS2 Humble app_mgr_object Node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Environment=ROS_DISTRO=humble
+Environment=ROS_DOMAIN_ID=0
+Environment=RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/bin/bash -c 'source /opt/ros/humble/setup.bash && source /root/ros2_ws/install/setup.bash && echo "ROS2 environment ready"'
+ExecStart=/bin/bash -c 'source /opt/ros/humble/setup.bash && source /root/ros2_ws/install/setup.bash && exec ros2 launch app_mgr_object app_app.launch.py'
+ExecStop=/bin/bash -c 'pkill -f "app_mgr_node" 2>/dev/null; pkill -f "ros2 launch app_mgr" 2>/dev/null; exit 0'
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=10
+KillMode=mixed
+
+# 日志输出到 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=app_mgr
+
+# 资源限制
+LimitNOFILE=65536
+MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
