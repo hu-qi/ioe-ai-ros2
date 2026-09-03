@@ -238,28 +238,31 @@ class WebServer:
             """首页"""
             if self.templates:
                 return self.templates.TemplateResponse(
-                    "index.html", 
-                    {"request": request, "config": self.config}
+                    request,
+                    "index.html",
+                    {"config": self.config}
                 )
             return HTMLResponse("<h1>天眼运维监控系统</h1>")
-        
+
         @self.app.get("/monitor")
         async def monitor(request: Request):
             """状态监控页"""
             if self.templates:
                 return self.templates.TemplateResponse(
-                    "monitor.html", 
-                    {"request": request, "config": self.config}
+                    request,
+                    "monitor.html",
+                    {"config": self.config}
                 )
             return HTMLResponse("<h1>状态监控</h1>")
-        
+
         @self.app.get("/control")
         async def control(request: Request):
             """运维控制页"""
             if self.templates:
                 return self.templates.TemplateResponse(
-                    "control.html", 
-                    {"request": request, "config": self.config}
+                    request,
+                    "control.html",
+                    {"config": self.config}
                 )
             return HTMLResponse("<h1>运维控制</h1>")
         
@@ -278,8 +281,9 @@ class WebServer:
             """测试页"""
             if self.templates:
                 return self.templates.TemplateResponse(
-                    "test.html", 
-                    {"request": request, "config": self.config}
+                    request,
+                    "test.html",
+                    {"config": self.config}
                 )
             return HTMLResponse("<h1>测试页面</h1>")
         
@@ -867,7 +871,7 @@ class WebServer:
             # 注：_ensure_calibration_sync 为 __init__ 内局部函数（闭包），非实例方法
             _ensure_calibration_sync()
             if self.templates:
-                return self.templates.TemplateResponse("calibration.html", {"request": request})
+                return self.templates.TemplateResponse(request, "calibration.html", {})
             return HTMLResponse("<h1>标定页面未找到</h1>")
 
         # ===== P4 v2：标定配置 OPS 自动同步（doc/P4 §9，防抖） =====
