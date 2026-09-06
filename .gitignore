@@ -1,0 +1,30 @@
+# AtomCode 本地配置（不入仓库）
+.atomcode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+install/
+log/
+
+# colcon
+colcon/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+*.log

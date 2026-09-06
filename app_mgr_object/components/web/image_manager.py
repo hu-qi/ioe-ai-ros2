@@ -7,7 +7,13 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    CV2_AVAILABLE = False
+import numpy as np
 import threading
 import subprocess
 import yaml
@@ -22,10 +28,10 @@ class InferenceImageManager:
         self.node = node
         self.logger = node.get_logger()
         self.config = config
-        self.bridge = CvBridge()
-        self.latest_frames: Dict[int, cv2.Mat] = {}
+        self.latest_frames: Dict[int, np.ndarray] = {}
         self._lock = threading.Lock()
         self._subscribers = []
+        self._frame_timestamps: Dict[int, float] = {}
 
         # 读取配置参数
         self.image_topic_base = config.get('image_topic_base', '/debug/rtsp_')
@@ -34,9 +40,16 @@ class InferenceImageManager:
         self.target_node = config.get('target_node', '/rtsp_multi_inference')
         self.config_file = config.get('config_file', '')
 
+        if not CV2_AVAILABLE:
+            self.bridge = None
+            self.logger.warning(
+                "⚠️ [标定模块] OpenCV (cv2) 未安装，推理图像标定功能已禁用。"
+                "如需标定，请安装 python3-opencv。"
+            )
+            return
+
+        self.bridge = CvBridge()
         self._setup_subscriptions()
-        
-        self._frame_timestamps: Dict[int, float] = {}   # 记录每通道最新帧时间戳
         
         # self._frame_events: Dict[int, threading.Event] = {}
         # for i in range(self.channel_count):
@@ -141,6 +154,8 @@ class InferenceImageManager:
     #         self.logger.info(f"[Calibration] Subscribed to {topic}")
 
     def _image_callback(self, msg: Image, channel_id: int):
+        if self.bridge is None:
+            return
         try:
             cv_img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             # 提取时间戳（优先使用消息自带的时间，单位：秒）
@@ -178,7 +193,7 @@ class InferenceImageManager:
                 return None
             return (frame, ts)        
 
-    def get_latest_frame(self, channel_id: int) -> Optional[cv2.Mat]:
+    def get_latest_frame(self, channel_id: int) -> Optional[np.ndarray]:
         with self._lock:
             return self.latest_frames.get(channel_id)
 
@@ -187,21 +202,29 @@ class InferenceImageManager:
 
     # ---------- 推理节点参数操作 ----------
     def _run_ros2_param(self, cmd_type: str, name: str, value=None) -> (bool, str):
-        """执行 ros2 param get/set 命令"""
+        """执行 ros2 param get/set 命令。
+        安全性：用列表参数 + shell=False，避免命令注入
+        （target_node/name 来自配置，虽风险低但遵循纵深防御）。
+        """
         if cmd_type == 'get':
-            cmd = f"ros2 param get {self.target_node} {name}"
+            cmd_list = ['ros2', 'param', 'get', self.target_node, name]
         else:
             yaml_str = yaml.dump(value, default_flow_style=True).strip()
-            cmd = f"ros2 param set {self.target_node} {name} {shlex.quote(yaml_str)}"
+            cmd_list = ['ros2', 'param', 'set', self.target_node, name, yaml_str]
         try:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            result = subprocess.run(cmd_list, shell=False, capture_output=True, text=True, timeout=5)
             return result.returncode == 0, result.stdout.strip()
         except Exception as e:
             self.logger.error(f"ros2 param command failed: {e}")
             return False, str(e)
 
     def get_inference_param(self, name: str) -> Optional[Any]:
-        """获取推理节点参数，兼容多种输出格式"""
+        """获取推理节点参数，兼容多种输出格式。
+        跨版本兼容（Humble/Jazzy）：
+        - Humble 数组输出: `Integer values are: [1, 2, 3]` 或 `array('q', [1, 2, 3])`
+        - Jazzy 数组输出: `String value is: a,b,c`（逗号分隔，无方括号）
+        - 标量输出: `String value is: info` / `Integer value is: 10`
+        """
         success, output = self._run_ros2_param('get', name)
         if not success:
             self.logger.warning(f"ros2 param get {name} failed")
@@ -218,7 +241,7 @@ class InferenceImageManager:
 
         val_str = match.group(1).strip()
 
-        # 处理 Python array('q', [...]) 格式
+        # 处理 Python array('q', [...]) 格式（Humble 旧版整数数组）
         if val_str.startswith('array('):
             start_idx = val_str.find('[')
             end_idx = val_str.rfind(']')
@@ -237,7 +260,7 @@ class InferenceImageManager:
             else:
                 return None
 
-        # 尝试 YAML 解析
+        # 尝试 YAML 解析（覆盖标量、Humble 方括号数组 `[1,2,3]`）
         try:
             value = yaml.safe_load(val_str)
             return value
@@ -246,13 +269,16 @@ class InferenceImageManager:
             return val_str
 
     def _set_remote_parameters(self, channel_id: int, names: List[str], points: List[int]) -> bool:
-        """使用 ros2 param set 命令设置远程节点参数，带超时保护"""
+        """使用 ros2 param set 命令设置远程节点参数，带超时保护。
+        安全性：shell=False + 列表参数，避免注入。
+        """
         try:
             # 设置名称列表
             names_str = yaml.dump(names, default_flow_style=True).strip()
-            cmd_names = f"ros2 param set {self.target_node} polygon_ch{channel_id}_names {shlex.quote(names_str)}"
-            self.logger.info(f"Executing: {cmd_names}")
-            result = subprocess.run(cmd_names, shell=True, capture_output=True, text=True, timeout=10)
+            cmd_names = ['ros2', 'param', 'set', self.target_node,
+                         f'polygon_ch{channel_id}_names', names_str]
+            self.logger.info(f"Executing: {' '.join(cmd_names)}")
+            result = subprocess.run(cmd_names, shell=False, capture_output=True, text=True, timeout=10)
             if result.returncode != 0:
                 self.logger.error(f"  ✗ Failed to set names: {result.stderr.strip()}")
                 return False
@@ -260,9 +286,10 @@ class InferenceImageManager:
 
             # 设置坐标点列表
             points_str = yaml.dump(points, default_flow_style=True).strip()
-            cmd_points = f"ros2 param set {self.target_node} polygon_ch{channel_id}_points {shlex.quote(points_str)}"
-            self.logger.info(f"Executing: {cmd_points}")
-            result = subprocess.run(cmd_points, shell=True, capture_output=True, text=True, timeout=10)
+            cmd_points = ['ros2', 'param', 'set', self.target_node,
+                          f'polygon_ch{channel_id}_points', points_str]
+            self.logger.info(f"Executing: {' '.join(cmd_points)}")
+            result = subprocess.run(cmd_points, shell=False, capture_output=True, text=True, timeout=10)
             if result.returncode != 0:
                 self.logger.error(f"  ✗ Failed to set points: {result.stderr.strip()}")
                 return False
@@ -276,12 +303,14 @@ class InferenceImageManager:
             return False
         
     def set_inference_param(self, name: str, value) -> bool:
-        """设置单个推理节点参数（如视频发布开关），使用安全命令行"""
+        """设置单个推理节点参数（如视频发布开关），使用安全命令行。
+        安全性：shell=False + 列表参数，避免注入。
+        """
         try:
             yaml_str = yaml.dump(value, default_flow_style=True).strip()
-            cmd = f"ros2 param set {self.target_node} {name} {shlex.quote(yaml_str)}"
-            self.logger.info(f"Executing: {cmd}")
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            cmd_list = ['ros2', 'param', 'set', self.target_node, name, yaml_str]
+            self.logger.info(f"Executing: {' '.join(cmd_list)}")
+            result = subprocess.run(cmd_list, shell=False, capture_output=True, text=True, timeout=5)
             if result.returncode != 0:
                 self.logger.error(f"ros2 param set failed: {result.stderr.strip()}")
                 return False

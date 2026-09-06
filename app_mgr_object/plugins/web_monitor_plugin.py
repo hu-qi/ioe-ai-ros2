@@ -247,6 +247,9 @@ class WebMonitorPlugin(BasePlugin):
             else:
                 self.logger.warning("event_bridge 未创建，跳过事件订阅")
 
+            # 3.5 启动期一次性检测：视频推理节点 /rtsp_multi_inference 是否在线
+            self._check_inference_node_at_startup()
+
             # 4. 启动 Web 服务器
             success = self._start_web_server()
             if success:
@@ -263,6 +266,31 @@ class WebMonitorPlugin(BasePlugin):
             import traceback
             self.logger.error(f"激活Web监控插件失败: {e}\n{traceback.format_exc()}")
             return False
+
+    def _check_inference_node_at_startup(self):
+        """启动期一次性检测视频推理节点是否在线，不在线打显性 WARN。
+        target_node 默认 /rtsp_multi_inference，可被 calibration.target_node 覆盖。
+        """
+        try:
+            target_node = '/rtsp_multi_inference'
+            calib = self.plugin_config.get('calibration', {})
+            if isinstance(calib, dict):
+                target_node = calib.get('target_node', target_node)
+
+            all_nodes = self.node.get_node_names_and_namespaces()
+            alive = any(name == target_node.lstrip('/') or ns + name == target_node
+                         for name, ns in all_nodes)
+            alias = self.plugin_config.get('node_aliases', {}).get(target_node, target_node)
+
+            if alive:
+                self.logger.info(f"✅ [启动检测] 视频推理节点 {target_node} ({alias}) 在线")
+            else:
+                self.logger.warning(
+                    f"⚠️ [启动检测] 视频推理节点 {target_node} ({alias}) 未在 ROS2 节点列表中发现。"
+                    f"标定页将无图像流，但核心业务不受影响。如需标定，请部署 /rtsp_multi_inference 节点。"
+                )
+        except Exception as e:
+            self.logger.debug(f"启动期节点检测异常（非致命）: {e}")
         
     def _init_components(self):
         """初始化各组件 — 告警管理器已启用"""

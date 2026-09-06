@@ -2,7 +2,12 @@
 """
 Web服务器 - 修复WebSocket版本
 """
-import cv2
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    cv2 = None
+    CV2_AVAILABLE = False
 import json
 import time
 import asyncio
@@ -941,6 +946,8 @@ class WebServer:
 
         @self.app.get("/api/calibration/frame/{channel_id}")
         async def get_calibration_frame(channel_id: int):
+            if not CV2_AVAILABLE:
+                raise HTTPException(status_code=503, detail="标定模块不可用：未安装 OpenCV (python3-opencv)")
             # P4：OPS 代理优先（raw 二进制 JPEG，doc/P4），OPS 不可达降级 image_manager
             proxy = getattr(self.node, 'ops_proxy', None)
             if proxy:
@@ -1014,6 +1021,10 @@ class WebServer:
                     frame, ts = mgr.get_frame_and_ts_if_newer(channel_id, last_sent_ts)
                     if frame is not None:
                         last_sent_ts = ts
+
+                        # 无 OpenCV 时跳过编码（标定模块非核心）
+                        if not CV2_AVAILABLE:
+                            continue
 
                         # 发送帧元数据
                         meta = {
