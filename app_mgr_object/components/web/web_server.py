@@ -1401,6 +1401,24 @@ class WebServer:
             return JSONResponse(content={"success": True, "cleared": count})
 
         self.logger.info("✅ 业务/配置/任务/告警路由注册完成（14+5 端点）")
+
+        # ==================== 报告接收插件路由 (doc/38 + doc/45) ====================
+        try:
+            from .report_recv_plugin import ReportRecvPlugin
+            report_plugin = ReportRecvPlugin(
+                node=self.node,
+                config=self.config.get('report_recv', {})
+            )
+            if report_plugin.configure():
+                report_plugin.activate()
+                report_plugin.register_routes(self.app, self.templates)
+                self._report_recv_plugin = report_plugin
+                self.logger.info("✅ 报告接收插件路由注册完成（9 端点）")
+            else:
+                self.logger.warning("报告接收插件配置失败，跳过路由注册")
+        except Exception as e:
+            self.logger.warning(f"报告接收插件加载失败（非致命）: {e}")
+
     
     def _start_websocket_broadcast(self):
         """启动WebSocket广播线程 - 使用uvicorn主事件循环"""
