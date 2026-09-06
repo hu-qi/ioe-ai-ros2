@@ -1,0 +1,15 @@
+# .agents Repository Folder Specification (AGENTS-1) Manifest
+# https://github.com/agentsfolder/spec
+specVersion: "1.0.0"
+
+defaults:
+  mode: "default"
+  policy: "default"
+
+enabled:
+  modes:
+    - "default"
+  policies:
+    - "default"
+  skills:
+    - "deploy-app-mgr"
