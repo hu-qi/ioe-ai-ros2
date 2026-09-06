@@ -106,7 +106,7 @@ class EventMerge:
             return report_id
 
         # 整包入库 (INSERT OR REPLACE 语义, 补全存根)
-        result_id = self.repo.insert_full_report(payload)
+        result_id, _ = self.repo.insert_full_report(payload)
 
         if self.logger:
             self.logger.info(

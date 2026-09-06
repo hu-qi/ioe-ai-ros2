@@ -20,7 +20,7 @@ import json
 import time
 from typing import Dict, Any, Optional
 
-from ..plugins.base_plugin import BasePlugin
+from ...plugins.base_plugin import BasePlugin
 from .report_repo import ReportRepo
 from .event_merge import EventMerge
 

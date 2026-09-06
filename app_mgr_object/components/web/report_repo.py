@@ -99,13 +99,17 @@ class ReportRepo:
 
         conn = self._connect()
         try:
-            # 去重检查
+            # 去重检查（读 is_stub 以区分"完整报告去重"与"存根报告待补全"）
             existing = conn.execute(
-                "SELECT report_id FROM reports WHERE report_id = ?", (report_id,)
+                "SELECT report_id, is_stub FROM reports WHERE report_id = ?",
+                (report_id,)
             ).fetchone()
-            if existing:
+
+            if existing and not existing["is_stub"]:
+                # 已是完整报告 → 幂等跳过
                 if self.logger:
-                    self.logger.info(f"ReportRepo: 整包去重命中 report_id={report_id}")
+                    self.logger.info(
+                        f"ReportRepo: 整包去重命中 report_id={report_id}")
                 return report_id, True
 
             # 解析 student (doc/38 §3)
@@ -117,28 +121,54 @@ class ReportRepo:
             # 软关联标记 (不阻塞)
             student_bound = self._check_student_bound(conn, student_id)
 
-            # 写 reports 主表
-            conn.execute(
-                """INSERT INTO reports
-                   (report_id, device_id, student_id, student_name, student_cls,
-                    student_bound, process_name, process_type, finish_reason,
-                    is_stub, start_ms, end_ms, duration_ms, process_elapsed_ms,
-                    total_score, raw_json_path, ts_upload_ms, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (report_id, device_id, student_id, student_name, student_cls,
-                 student_bound,
-                 round_data.get("process_name", ""),
-                 round_data.get("process_type", ""),
-                 round_data.get("finish_reason", ""),
-                 start_ms,
-                 round_data.get("end_ms"),
-                 round_data.get("duration_ms"),
-                 round_data.get("process_elapsed_ms"),
-                 round_data.get("total_score"),
-                 raw_json_path,
-                 ts_upload_ms,
-                 now_ms)
-            )
+            if existing and existing["is_stub"]:
+                # 存根报告补全：UPDATE 为完整报告
+                conn.execute(
+                    """UPDATE reports SET
+                       device_id=?, student_id=?, student_name=?, student_cls=?,
+                       student_bound=?, process_name=?, process_type=?,
+                       finish_reason=?, is_stub=0, start_ms=?, end_ms=?,
+                       duration_ms=?, process_elapsed_ms=?, total_score=?,
+                       raw_json_path=?, ts_upload_ms=?, created_at=?
+                       WHERE report_id=?""",
+                    (device_id, student_id, student_name, student_cls,
+                     student_bound,
+                     round_data.get("process_name", ""),
+                     round_data.get("process_type", ""),
+                     round_data.get("finish_reason", ""),
+                     start_ms,
+                     round_data.get("end_ms"),
+                     round_data.get("duration_ms"),
+                     round_data.get("process_elapsed_ms"),
+                     round_data.get("total_score"),
+                     raw_json_path,
+                     ts_upload_ms,
+                     now_ms,
+                     report_id)
+                )
+            else:
+                # 全新整包入库
+                conn.execute(
+                    """INSERT INTO reports
+                       (report_id, device_id, student_id, student_name, student_cls,
+                        student_bound, process_name, process_type, finish_reason,
+                        is_stub, start_ms, end_ms, duration_ms, process_elapsed_ms,
+                        total_score, raw_json_path, ts_upload_ms, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (report_id, device_id, student_id, student_name, student_cls,
+                     student_bound,
+                     round_data.get("process_name", ""),
+                     round_data.get("process_type", ""),
+                     round_data.get("finish_reason", ""),
+                     start_ms,
+                     round_data.get("end_ms"),
+                     round_data.get("duration_ms"),
+                     round_data.get("process_elapsed_ms"),
+                     round_data.get("total_score"),
+                     raw_json_path,
+                     ts_upload_ms,
+                     now_ms)
+                )
 
             # 写 report_steps (doc/38 §5)
             steps = round_data.get("steps", []) or []
@@ -430,8 +460,10 @@ class ReportRepo:
             ).fetchone()
 
             if existing:
+                # 重复订阅：重新激活 active=1，更新 note + resubscribed 标记
                 conn.execute(
-                    """UPDATE subscriptions SET note = ?, updated_at_ms = ?, resubscribed = 1
+                    """UPDATE subscriptions
+                       SET active = 1, note = ?, updated_at_ms = ?, resubscribed = 1
                        WHERE device_id = ?""",
                     (note, now_ms, device_id)
                 )

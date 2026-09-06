@@ -627,6 +627,8 @@ class WebMonitorPlugin(BasePlugin):
                 'channel_aliases': self._status_config['channel_aliases'],
                 'callback_server': self._status_config['callback_server'],
                 'node_names': self._control_config['node_names'],
+                # 报告接收插件配置透传（doc/70 §5.5）
+                'report_recv': self.plugin_config.get('report_recv', {}),
             }
             self.logger.info("组件配置初始化完成")
         except Exception as e:
