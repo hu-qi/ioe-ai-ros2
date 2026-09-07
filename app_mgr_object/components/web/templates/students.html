@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block title %}学员管理 - AI智能教学分析平台{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2">
+
+    <!-- 检索栏 -->
+    <div class="card mb-2">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label mb-1 small">关键词</label>
+                    <input type="text" class="form-control form-control-sm" id="search-keyword"
+                           placeholder="姓名 / 工号 / 班级">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">班级</label>
+                    <input type="text" class="form-control form-control-sm" id="search-cls"
+                           placeholder="精确匹配">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">状态</label>
+                    <select class="form-select form-select-sm" id="search-status">
+                        <option value="active" selected>在训</option>
+                        <option value="graduated">结业</option>
+                        <option value="dropped">退学</option>
+                        <option value="deleted">已删除</option>
+                        <option value="all">全部</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-accent btn-sm w-100" id="btn-search">
+                        <i class="fas fa-search"></i> 搜索
+                    </button>
+                </div>
+                <div class="col-md-3 text-end">
+                    <button class="btn btn-outline btn-sm me-1" id="btn-add">
+                        <i class="fas fa-user-plus"></i> 新增
+                    </button>
+                    <button class="btn btn-outline btn-sm me-1" id="btn-import">
+                        <i class="fas fa-file-import"></i> 导入
+                    </button>
+                    <button class="btn btn-outline btn-sm" id="btn-export">
+                        <i class="fas fa-file-export"></i> 导出
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 学员列表 -->
+    <div class="card">
+        <div class="card-header">
+            <i class="fas fa-users"></i> 学员列表
+            <span class="ms-2 small text-muted" id="list-count">共 0 条</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="task-table-wrap">
+                <table class="table task-table mb-0" id="students-table">
+                    <thead>
+                        <tr>
+                            <th>工号</th>
+                            <th>姓名</th>
+                            <th>班级</th>
+                            <th>工种</th>
+                            <th>入学日期</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="students-tbody">
+                        <tr><td colspan="7" class="text-center text-muted py-3">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <!-- 分页 -->
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span class="small text-muted" id="page-info">第 1/1 页</span>
+            <div>
+                <button class="btn btn-outline btn-sm me-1" id="btn-prev" disabled>
+                    <i class="fas fa-chevron-left"></i> 上一页
+                </button>
+                <button class="btn btn-outline btn-sm" id="btn-next" disabled>
+                    下一页 <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 学员详情抽屉（隐藏，点击"详情"时展开） -->
+    <div class="card mt-2" id="detail-card" style="display:none;">
+        <div class="card-header">
+            <i class="fas fa-id-card"></i> 学员详情
+            <button class="btn btn-outline btn-sm float-end" id="btn-close-detail">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <table class="table table-sm table-borderless">
+                        <tr><td class="text-muted" style="width:100px">工号</td><td id="d-id"></td></tr>
+                        <tr><td class="text-muted">姓名</td><td id="d-name"></td></tr>
+                        <tr><td class="text-muted">班级</td><td id="d-cls"></td></tr>
+                        <tr><td class="text-muted">工种</td><td id="d-trade"></td></tr>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <table class="table table-sm table-borderless">
+                        <tr><td class="text-muted" style="width:100px">入学日期</td><td id="d-enroll"></td></tr>
+                        <tr><td class="text-muted">状态</td><td id="d-status"></td></tr>
+                        <tr><td class="text-muted">备注</td><td id="d-remark"></td></tr>
+                        <tr><td class="text-muted">创建时间</td><td id="d-created"></td></tr>
+                    </table>
+                </div>
+            </div>
+            <hr>
+            <h6 class="text-muted"><i class="fas fa-history"></i> 历史考试记录</h6>
+            <div id="reports-area" class="text-center text-muted py-3">
+                暂无考试记录，待报告插件接入
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 新增/编辑学员模态框 -->
+<div class="modal fade" id="student-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modal-title">新增学员</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="student-form">
+                    <input type="hidden" id="form-mode" value="add">
+                    <div class="mb-3">
+                        <label class="form-label">工号 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="form-id"
+                               placeholder="如 S2024001" required>
+                        <div class="form-text">字母数字下划线短横线，长度1-32</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">姓名 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="form-name" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">班级</label>
+                            <input type="text" class="form-control" id="form-cls">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">工种</label>
+                            <input type="text" class="form-control" id="form-trade">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">入学日期</label>
+                        <input type="date" class="form-control" id="form-enroll">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" id="form-remark" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-accent" id="btn-save-student">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- CSV 导入模态框 -->
+<div class="modal fade" id="import-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">批量导入学员 (CSV)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label">选择 CSV 文件 (UTF-8)</label>
+                    <input type="file" class="form-control" id="import-file" accept=".csv">
+                </div>
+                <div class="form-text">
+                    CSV 表头需含: id, name, cls, trade, enroll_date, remark<br>
+                    工号已存在时会覆盖更新 (upsert 语义)
+                </div>
+                <div id="import-result" class="mt-3" style="display:none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-accent" id="btn-do-import">
+                    <i class="fas fa-upload"></i> 开始导入
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/students.js"></script>
+{% endblock %}

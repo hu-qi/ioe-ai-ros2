@@ -1430,6 +1430,57 @@ class WebServer:
         except Exception as e:
             self.logger.warning(f"报告接收插件加载失败（非致命）: {e}")
 
+        # ==================== 学员管理插件路由 (doc/69) ====================
+        try:
+            from ..plugins.student_mgr_plugin import StudentMgrPlugin
+            student_plugin = StudentMgrPlugin(
+                node=self.node,
+                config=self.config.get('student_mgr', {})
+            )
+            if student_plugin.configure():
+                student_plugin.activate()
+                student_plugin.register_routes(self.app, self.templates)
+                self._student_mgr_plugin = student_plugin
+                self.logger.info("✅ 学员管理插件路由注册完成（8 端点）")
+            else:
+                self.logger.warning("学员管理插件配置失败，跳过路由注册")
+        except Exception as e:
+            self.logger.warning(f"学员管理插件加载失败（非致命）: {e}")
+
+        # ==================== 统计分析插件路由 (doc/71) ====================
+        try:
+            from ..plugins.report_analysis_plugin import ReportAnalysisPlugin
+            analysis_plugin = ReportAnalysisPlugin(
+                node=self.node,
+                config=self.config.get('report_analysis', {})
+            )
+            if analysis_plugin.configure():
+                analysis_plugin.activate()
+                analysis_plugin.register_routes(self.app, self.templates)
+                self._report_analysis_plugin = analysis_plugin
+                self.logger.info("✅ 统计分析插件路由注册完成（5 端点）")
+            else:
+                self.logger.warning("统计分析插件配置失败，跳过路由注册")
+        except Exception as e:
+            self.logger.warning(f"统计分析插件加载失败（非致命）: {e}")
+
+        # ==================== 教学看板插件路由 (doc/72) ====================
+        try:
+            from ..plugins.teaching_dashboard_plugin import TeachingDashboardPlugin
+            dashboard_plugin = TeachingDashboardPlugin(
+                node=self.node,
+                config=self.config.get('teaching_dashboard', {})
+            )
+            if dashboard_plugin.configure():
+                dashboard_plugin.activate()
+                dashboard_plugin.register_routes(self.app, self.templates)
+                self._teaching_dashboard_plugin = dashboard_plugin
+                self.logger.info("✅ 教学看板插件路由注册完成（6 端点）")
+            else:
+                self.logger.warning("教学看板插件配置失败，跳过路由注册")
+        except Exception as e:
+            self.logger.warning(f"教学看板插件加载失败（非致命）: {e}")
+
     
     def _start_websocket_broadcast(self):
         """启动WebSocket广播线程 - 使用uvicorn主事件循环"""

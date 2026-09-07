@@ -1,0 +1,25 @@
+# ============================================================
+# students.yaml — 学员管理插件配置
+# 工程基线: app_mgr_object-0.2.1
+# 关联文档: doc/69 学员管理插件开发方案
+# ============================================================
+
+student_mgr:
+  # 启用开关：false 时插件不激活，web 路由不注册
+  enabled: true
+
+  # 数据库文件路径（与现有底座 SQLite 文件位置一致）
+  db_path: "config/app.db"
+
+  # 建表 SQL 路径
+  schema_path: "config/students_schema.sql"
+
+  # 分页配置
+  page_size: 20           # 默认每页条数
+  page_size_max: 100      # 每页上限
+
+  # CSV 批量导入配置
+  import_max_rows: 1000   # 单次导入上限
+
+  # 原始 JSON 留存目录（预留，本期不用）
+  raw_json_dir: "config/data/students"

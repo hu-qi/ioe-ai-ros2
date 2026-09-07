@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}教学看板 - AI智能教学分析平台{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2">
+
+    <!-- ==================== 今日概览 ==================== -->
+    <div class="row g-2 mb-2">
+        <div class="col-md-3">
+            <div class="card text-center dashboard-kpi">
+                <div class="card-body py-3">
+                    <div class="kpi-label">今日考试人数</div>
+                    <div class="kpi-value" id="kpi-exam-count">--</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center dashboard-kpi">
+                <div class="card-body py-3">
+                    <div class="kpi-label">今日平均得分</div>
+                    <div class="kpi-value" id="kpi-avg-score">--</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center dashboard-kpi">
+                <div class="card-body py-3">
+                    <div class="kpi-label">今日通过率</div>
+                    <div class="kpi-value" id="kpi-pass-rate">--</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center dashboard-kpi">
+                <div class="card-body py-3">
+                    <div class="kpi-label">待辅导学员数</div>
+                    <div class="kpi-value" id="kpi-pending-tutor">--</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 高频错误点 TOP5 + 需关注的学员 ==================== -->
+    <div class="row g-2 mb-2">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="fas fa-exclamation-triangle"></i> 高频错误点 TOP5
+                </div>
+                <div class="card-body p-0">
+                    <div class="task-table-wrap">
+                        <table class="table task-table mb-0" id="error-points-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>步骤</th>
+                                    <th>遗漏率</th>
+                                    <th>超时率</th>
+                                    <th>综合得分</th>
+                                </tr>
+                            </thead>
+                            <tbody id="error-points-tbody">
+                                <tr><td colspan="5" class="text-center text-muted py-3">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <i class="fas fa-user-friends"></i> 需关注的学员
+                </div>
+                <div class="card-body p-0">
+                    <div class="task-table-wrap">
+                        <table class="table task-table mb-0" id="attention-students-table">
+                            <thead>
+                                <tr>
+                                    <th>学员</th>
+                                    <th>原因</th>
+                                    <th>详情</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attention-students-tbody">
+                                <tr><td colspan="3" class="text-center text-muted py-3">加载中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 实时进度展示 ==================== -->
+    <div class="card mb-2">
+        <div class="card-header">
+            <i class="fas fa-broadcast-tower"></i> 实时进度（订阅中设备）
+            <span class="ms-2 small text-muted" id="realtime-count">0 台</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="task-table-wrap">
+                <table class="table task-table mb-0" id="realtime-progress-table">
+                    <thead>
+                        <tr>
+                            <th>设备ID</th>
+                            <th>学员</th>
+                            <th>进度</th>
+                            <th>当前子步骤</th>
+                            <th>已用时</th>
+                            <th>更新时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="realtime-progress-tbody">
+                        <tr><td colspan="6" class="text-center text-muted py-3">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== 教学改进验证 ==================== -->
+    <div class="card mb-2">
+        <div class="card-header">
+            <i class="fas fa-chart-line"></i> 教学改进验证
+        </div>
+        <div class="card-body">
+            <div class="row g-2 align-items-end mb-2">
+                <div class="col-md-3">
+                    <label class="form-label mb-1 small">班级</label>
+                    <input type="text" class="form-control form-control-sm" id="iv-cls" placeholder="如：机修一班">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">调整前-起 (epoch ms)</label>
+                    <input type="number" class="form-control form-control-sm" id="iv-before-start" placeholder="如：1725148800000">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">调整前-止</label>
+                    <input type="number" class="form-control form-control-sm" id="iv-before-end">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">调整后-起</label>
+                    <input type="number" class="form-control form-control-sm" id="iv-after-start">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">调整后-止</label>
+                    <input type="number" class="form-control form-control-sm" id="iv-after-end">
+                </div>
+                <div class="col-md-1">
+                    <button class="btn btn-accent btn-sm w-100" id="btn-iv-query">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+            </div>
+            <div id="iv-result" class="mt-2" style="display:none;"></div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

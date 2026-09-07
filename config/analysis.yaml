@@ -1,0 +1,37 @@
+# ============================================================
+# analysis.yaml — 统计分析插件配置
+# 工程基线: app_mgr_object-0.2.1
+# 关联文档: doc/71 统计分析插件开发方案
+# ============================================================
+
+report_analysis:
+  # 启用开关
+  enabled: true
+
+  # 数据库文件路径（与 reports 表同库）
+  db_path: "config/app.db"
+
+  # 建表 SQL 路径
+  schema_path: "config/analysis_schema.sql"
+
+  # SOP 标准用时来源（边缘端 model JSON 路径）
+  # 若文件不存在或无 standard_duration_ms 字段，降级为"仅统计实际用时"
+  sop_model_paths:
+    disass: "config/models/model_a.json"
+    assembly: "config/models/model_as.json"
+
+  # 诊断阈值（对齐需求说明.docx §3.3.3，可调）
+  thresholds:
+    bottleneck_multiplier: 1.5        # 全班性瓶颈：全班平均用时 > SOP标准×1.5
+    persistent_error_rate: 0.30       # 顽固性错误：遗漏率 > 30%
+    sequence_chaos_rate: 0.20         # 顺序混乱：顺序错误率 > 20%
+    regression_window_recent: 3       # 学员退步预警：最近3次
+    regression_window_history: 5      # 学员退步预警：前5次
+    regression_threshold: 0.85        # 学员退步预警：最近3次平均分 < 前5次×0.85
+
+  # 统计结果缓存策略
+  cache_ttl_sec: 300                  # 缓存有效期 5 分钟
+
+  # 分页配置
+  page_size: 20
+  page_size_max: 100
