@@ -39,17 +39,61 @@ class ReportRepo:
             os.makedirs(parent, exist_ok=True)
 
     def init_schema(self) -> None:
-        """执行建表 DDL (幂等)"""
+        """执行建表 DDL (幂等) + 增量字段迁移"""
         with open(self.SCHEMA_FILE, "r", encoding="utf-8") as f:
             schema_sql = f.read()
         conn = self._connect()
         try:
             conn.executescript(schema_sql)
+            self._migrate_subscriptions_columns(conn)
             conn.commit()
             if self.logger:
                 self.logger.info("ReportRepo: schema 初始化完成")
         finally:
             conn.close()
+
+    def _migrate_subscriptions_columns(self, conn: sqlite3.Connection) -> None:
+        """给已存在的 subscriptions 表补齐 v2/v3 新增字段（CREATE TABLE IF NOT EXISTS 不会改已有表）。"""
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(subscriptions)")
+        existing_cols = {row[1] for row in cur.fetchall()}
+
+        # v2: 单 edge_ip（旧）→ v3: edge_ips JSON 数组
+        # 迁移策略：若存在旧 edge_ip 字段，先读出值，新增 edge_ips 字段后把旧值转成 JSON 数组写回
+        legacy_edge_ip_value = None
+        if "edge_ip" in existing_cols and "edge_ips" not in existing_cols:
+            # 读出旧 edge_ip 值
+            rows = cur.execute("SELECT device_id, edge_ip FROM subscriptions").fetchall()
+            legacy_edge_ip_value = {r["device_id"]: r["edge_ip"] for r in rows} if rows else {}
+            # 旧字段不删（SQLite 不支持 DROP COLUMN），新字段 edge_ips 补上
+            cur.execute("ALTER TABLE subscriptions ADD COLUMN edge_ips TEXT")
+            if self.logger:
+                self.logger.info("ReportRepo: 迁移字段 subscriptions.edge_ips (从 edge_ip)")
+
+        new_cols = [
+            ("edge_ips", "TEXT"),
+            ("edge_port", "INTEGER"),
+            ("notify_status", "TEXT"),
+            ("notify_ts", "INTEGER"),
+            ("notify_detail", "TEXT"),
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in existing_cols and col_name != "edge_ips":
+                cur.execute(
+                    f"ALTER TABLE subscriptions ADD COLUMN {col_name} {col_type}"
+                )
+                if self.logger:
+                    self.logger.info(f"ReportRepo: 迁移字段 subscriptions.{col_name}")
+
+        # 若刚迁移 edge_ips，把旧 edge_ip 值转成 JSON 数组写回
+        if legacy_edge_ip_value:
+            import json as _json
+            for device_id, old_ip in legacy_edge_ip_value.items():
+                if old_ip:
+                    cur.execute(
+                        "UPDATE subscriptions SET edge_ips = ? WHERE device_id = ?",
+                        (_json.dumps([old_ip]), device_id),
+                    )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -450,9 +494,21 @@ class ReportRepo:
     # ------------------------------------------------------------------
     # 订阅管理 (doc/45 §4, 多设备)
     # ------------------------------------------------------------------
-    def upsert_subscription(self, device_id: str, note: str = "") -> Dict[str, Any]:
-        """订阅设备 (doc/45 §4.1). 重复订阅 = 更新 note + 保持 active (resubscribed=true)."""
+    def upsert_subscription(
+        self,
+        device_id: str,
+        note: str = "",
+        edge_ips: Optional[List[str]] = None,
+        edge_port: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """订阅设备 (doc/45 §4.1). 重复订阅 = 更新 note + 保持 active (resubscribed=true).
+
+        v3 增强: 接受 edge_ips（IP 列表）/edge_port，订阅时初始化 notify_status='pending'，
+        平台据此主动往所有边缘端推送"你被订阅了"的通知（全推）。
+        """
+        import json as _json
         now_ms = self._now_ms()
+        edge_ips_json = _json.dumps(edge_ips) if edge_ips else None
         conn = self._connect()
         try:
             existing = conn.execute(
@@ -463,24 +519,59 @@ class ReportRepo:
                 # 重复订阅：重新激活 active=1，更新 note + resubscribed 标记
                 conn.execute(
                     """UPDATE subscriptions
-                       SET active = 1, note = ?, updated_at_ms = ?, resubscribed = 1
+                       SET active = 1, note = ?, updated_at_ms = ?, resubscribed = 1,
+                           edge_ips = COALESCE(?, edge_ips),
+                           edge_port = COALESCE(?, edge_port),
+                           notify_status = 'pending'
                        WHERE device_id = ?""",
-                    (note, now_ms, device_id)
+                    (note, now_ms, edge_ips_json, edge_port, device_id)
                 )
             else:
                 conn.execute(
                     """INSERT INTO subscriptions
-                       (device_id, active, note, subscribed_at_ms, updated_at_ms, resubscribed)
-                       VALUES (?, 1, ?, ?, ?, 0)""",
-                    (device_id, note, now_ms, now_ms)
+                       (device_id, active, note, edge_ips, edge_port,
+                        notify_status, subscribed_at_ms, updated_at_ms, resubscribed)
+                       VALUES (?, 1, ?, ?, ?, 'pending', ?, ?, 0)""",
+                    (device_id, note, edge_ips_json, edge_port, now_ms, now_ms)
                 )
 
             conn.commit()
             return {
                 "device_id": device_id,
                 "active": True,
+                "edge_ips": edge_ips,
+                "edge_port": edge_port,
                 "subscribed_at_ms": existing["subscribed_at_ms"] if existing else now_ms
             }
+        finally:
+            conn.close()
+
+    def update_notify_status(
+        self,
+        device_id: str,
+        status: str,
+        notify_ts: Optional[int] = None,
+        notify_detail: Optional[str] = None,
+    ) -> None:
+        """更新订阅推送通知状态（pending/sent/partial/failed）+ 各 IP 明细。"""
+        now_ms = notify_ts or self._now_ms()
+        conn = self._connect()
+        try:
+            if notify_detail is not None:
+                conn.execute(
+                    """UPDATE subscriptions
+                       SET notify_status = ?, notify_ts = ?, notify_detail = ?
+                       WHERE device_id = ?""",
+                    (status, now_ms, notify_detail, device_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE subscriptions
+                       SET notify_status = ?, notify_ts = ?
+                       WHERE device_id = ?""",
+                    (status, now_ms, device_id),
+                )
+            conn.commit()
         finally:
             conn.close()
 

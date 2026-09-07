@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+{% block title %}报告接收联调{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4" id="report-debug-page">
+  <h2 class="mb-4"><i class="fas fa-flask"></i> 报告接收联调</h2>
+
+  <!-- ========== 全局参数栏 ========== -->
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="fas fa-cog"></i> 全局参数（改一处，下方 JSON 自动同步）</div>
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small mb-0">设备 ID</label>
+          <input type="text" class="form-control form-control-sm" id="g-device" value="dev_sim05">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small mb-0">学员 ID</label>
+          <input type="text" class="form-control form-control-sm" id="g-student-id" value="SIM001">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small mb-0">学员姓名</label>
+          <input type="text" class="form-control form-control-sm" id="g-student-name" value="模拟学员">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small mb-0">班级</label>
+          <input type="text" class="form-control form-control-sm" id="g-student-cls" value="测试班">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small mb-0">轮次起始 ms</label>
+          <div class="input-group input-group-sm">
+            <input type="number" class="form-control" id="g-round-start" value="0">
+            <button class="btn btn-outline-secondary" id="btn-fill-ts" type="button" title="用当前毫秒时间戳填充">⏱</button>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-sm btn-info w-100" id="btn-sync-global"><i class="fas fa-sync"></i> 同步到 JSON</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 订阅区 ========== -->
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="fas fa-satellite-dish"></i> ① 订阅设备（填多个边缘端 IP，平台全推通知）</div>
+    <div class="card-body py-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small mb-0">设备 ID</label>
+          <input type="text" class="form-control form-control-sm" id="sub-device" value="dev_sim05">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label small mb-0">边缘端 IP 列表（逗号分隔，每个可带 :port）</label>
+          <input type="text" class="form-control form-control-sm" id="sub-edge-ips"
+                 value="127.0.0.1:9184, 127.0.0.1:9185"
+                 placeholder="如 192.168.1.100:9184, 192.168.1.101:9185">
+        </div>
+        <div class="col-md-1">
+          <label class="form-label small mb-0">端口</label>
+          <input type="number" class="form-control form-control-sm" id="sub-port" value="9184">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small mb-0">备注</label>
+          <input type="text" class="form-control form-control-sm" id="sub-note" value="Web联调">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-sm btn-primary w-100" id="btn-subscribe">
+            <i class="fas fa-paper-plane"></i> 订阅 + 推送
+          </button>
+        </div>
+      </div>
+      <div id="sub-result" class="mt-2" style="font-size:12px;"></div>
+    </div>
+  </div>
+
+  <!-- ========== 上报模拟区 ========== -->
+  <div class="row">
+    <!-- 增量事件 -->
+    <div class="col-md-6">
+      <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <span><i class="fas fa-stream"></i> ② 模拟增量事件 (POST /api/v1/events)</span>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-reset-events">重置</button>
+        </div>
+        <div class="card-body py-2">
+          <textarea id="events-json" class="form-control font-monospace"
+                    style="font-size:11px;height:320px;white-space:pre;">{
+  "schema_version": "1.1",
+  "type": "event_delta",
+  "device_id": "dev_sim05",
+  "edge_node": "web_sim",
+  "ts_upload_ms": 0,
+  "round_start_ms": 0,
+  "process_elapsed_ms": 12000,
+  "student": {"id": "SIM001", "name": "模拟学员", "cls": "测试班", "source": "manual"},
+  "events": [
+    {"ts": 1000, "kind": 0, "step": 1, "sub": 1},
+    {"ts": 8000, "kind": 1, "step": 1, "sub": 1}
+  ],
+  "progress": {"done": 1, "total": 5, "current": "装缓冲", "current_sub_index": 1}
+}</textarea>
+          <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-sm btn-success" id="btn-send-events"><i class="fas fa-upload"></i> 模拟端侧上报增量</button>
+            <span id="events-result" style="font-size:12px;align-self:center;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 整包报告 -->
+    <div class="col-md-6">
+      <div class="card mb-3">
+        <div class="card-header py-2 d-flex justify-content-between align-items-center">
+          <span><i class="fas fa-box"></i> ③ 模拟整包报告 (POST /api/v1/reports)</span>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-reset-reports">重置</button>
+        </div>
+        <div class="card-body py-2">
+          <textarea id="reports-json" class="form-control font-monospace"
+                    style="font-size:11px;height:320px;white-space:pre;">{
+  "schema_version": "1.0",
+  "device_id": "dev_sim05",
+  "edge_node": "web_sim",
+  "ts_upload_ms": 0,
+  "student": {"id": "SIM001", "name": "模拟学员", "cls": "测试班", "source": "manual"},
+  "round": {
+    "process_name": "组装自动机监测",
+    "process_type": "assembly",
+    "finish_reason": "completed",
+    "start_ms": 0,
+    "end_ms": 0,
+    "duration_ms": 87000,
+    "process_elapsed_ms": 87000,
+    "events": [
+      {"ts": 3200, "kind": 0, "step": 1, "sub": 1},
+      {"ts": 11400, "kind": 1, "step": 1, "sub": 1}
+    ],
+    "steps": [
+      {"idx": 1, "name": "装缓冲", "state": 2, "duration_ms": 8200, "start_ms": 3200, "end_ms": 11400, "interval_ms": 0}
+    ],
+    "substeps": [
+      {"idx": 1, "name": "装缓冲", "state": 2, "duration_ms": 8200, "count": 1, "total_duration_ms": 8200, "timeout": false, "start_ms": 3200, "end_ms": 11400}
+    ],
+    "unexecuted": [],
+    "substep_counts": [1]
+  }
+}</textarea>
+          <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-sm btn-success" id="btn-send-reports"><i class="fas fa-upload"></i> 模拟端侧上报整包</button>
+            <span id="reports-result" style="font-size:12px;align-self:center;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 入库结果区 ========== -->
+  <div class="card mb-3">
+    <div class="card-header py-2"><i class="fas fa-database"></i> ④ 入库结果验证</div>
+    <div class="card-body py-2">
+      <div class="row g-2 mb-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label small mb-0">设备 ID 过滤</label>
+          <input type="text" class="form-control form-control-sm" id="query-device" value="dev_sim05">
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-sm btn-info w-100" id="btn-query-reports"><i class="fas fa-search"></i> 查报告列表</button>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-sm btn-warning w-100" id="btn-query-subs"><i class="fas fa-list"></i> 查订阅列表</button>
+        </div>
+      </div>
+      <pre id="query-result" class="bg-light p-2 rounded" style="font-size:11px;max-height:280px;overflow:auto;">点上面按钮查询入库结果 ...</pre>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function() {
+  const API = '';
+  const $ = id => document.getElementById(id);
+  const now = () => Date.now();
+
+  // ── 全局参数同步到 JSON ──
+  function syncGlobalToJSON() {
+    const dev = $('g-device').value.trim();
+    const sid = $('g-student-id').value.trim();
+    const sname = $('g-student-name').value.trim();
+    const scls = $('g-student-cls').value.trim();
+    const rs = parseInt($('g-round-start').value) || 0;
+
+    $('sub-device').value = dev;
+
+    try {
+      let ev = JSON.parse($('events-json').value);
+      ev.device_id = dev;
+      ev.ts_upload_ms = now();
+      if (ev.round_start_ms === 0 || ev.round_start_ms === rs) ev.round_start_ms = rs;
+      if (ev.student) { ev.student.id = sid; ev.student.name = sname; ev.student.cls = scls; }
+      $('events-json').value = JSON.stringify(ev, null, 2);
+    } catch(e) {}
+
+    try {
+      let rep = JSON.parse($('reports-json').value);
+      rep.device_id = dev;
+      rep.ts_upload_ms = now();
+      if (rep.student) { rep.student.id = sid; rep.student.name = sname; rep.student.cls = scls; }
+      if (rep.round) {
+        if (rep.round.start_ms === 0 || rep.round.start_ms === rs) rep.round.start_ms = rs;
+        if (rs && rep.round.end_ms === 0) rep.round.end_ms = rs + 87000;
+      }
+      $('reports-json').value = JSON.stringify(rep, null, 2);
+    } catch(e) {}
+  }
+  $('btn-sync-global').onclick = syncGlobalToJSON;
+
+  // ── ⏱ 填充当前毫秒时间戳 ──
+  $('btn-fill-ts').onclick = function() {
+    $('g-round-start').value = now();
+    syncGlobalToJSON();
+  };
+
+  // ── ① 订阅 + 推送 ──
+  $('btn-subscribe').onclick = async function() {
+    const device_id = $('sub-device').value.trim();
+    const rawIps = $('sub-edge-ips').value.trim();
+    if (!device_id) { $('sub-result').innerHTML = '<span class="text-danger">缺 device_id</span>'; return; }
+    if (!rawIps) { $('sub-result').innerHTML = '<span class="text-danger">缺 edge_ips</span>'; return; }
+
+    const edge_ips = rawIps.split(',').map(s => s.trim()).filter(Boolean);
+    const body = {
+      device_id,
+      note: $('sub-note').value.trim(),
+      edge_ips,
+      edge_port: parseInt($('sub-port').value) || 9184
+    };
+    try {
+      const resp = await fetch(API + '/api/v1/subscriptions', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+      const data = await resp.json();
+      const notify = (data.data || {}).notify || {};
+      $('sub-result').innerHTML =
+        '<pre style="white-space:pre-wrap;background:#f8f9fa;padding:8px;border-radius:4px;">' +
+        '订阅结果:\n' + JSON.stringify(data, null, 2) +
+        '\n\n推送汇总: status=' + (notify.status || '?') +
+        ', ok=' + (notify.ok_count ?? '?') + '/' + (notify.total ?? '?') +
+        (notify.per_ip ? '\n各 IP 明细:\n' + JSON.stringify(notify.per_ip, null, 2) : '') +
+        '</pre>';
+    } catch(e) {
+      $('sub-result').innerHTML = '<span class="text-danger">请求失败: ' + e + '</span>';
+    }
+  };
+
+  // ── ② 发送增量事件 ──
+  $('btn-send-events').onclick = async function() {
+    let payload;
+    try { payload = JSON.parse($('events-json').value); }
+    catch(e) { $('events-result').innerHTML = '<span class="text-danger">JSON 解析失败</span>'; return; }
+
+    const ms = now();
+    if (!payload.ts_upload_ms) payload.ts_upload_ms = ms;
+    if (!payload.round_start_ms) payload.round_start_ms = ms;
+    $('events-json').value = JSON.stringify(payload, null, 2);
+
+    try {
+      const resp = await fetch(API + '/api/v1/events', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      $('events-result').innerHTML = '<span class="' + (resp.ok ? 'text-success' : 'text-danger') + '">' +
+        'HTTP ' + resp.status + ' → delta_events=' + ((data.data||{}).delta_events ?? '?') + '</span>';
+    } catch(e) {
+      $('events-result').innerHTML = '<span class="text-danger">请求失败: ' + e + '</span>';
+    }
+  };
+
+  // ── ③ 发送整包报告 ──
+  $('btn-send-reports').onclick = async function() {
+    let payload;
+    try { payload = JSON.parse($('reports-json').value); }
+    catch(e) { $('reports-result').innerHTML = '<span class="text-danger">JSON 解析失败</span>'; return; }
+
+    const ms = now();
+    if (!payload.ts_upload_ms) payload.ts_upload_ms = ms;
+    if (payload.round && !payload.round.start_ms) payload.round.start_ms = ms;
+    $('reports-json').value = JSON.stringify(payload, null, 2);
+
+    try {
+      const resp = await fetch(API + '/api/v1/reports', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+      const data = await resp.json();
+      const rid = (data.data || {}).report_id || '?';
+      $('reports-result').innerHTML = '<span class="' + (resp.ok ? 'text-success' : 'text-danger') + '">' +
+        'HTTP ' + resp.status + ' → report_id=' + rid + '</span>';
+    } catch(e) {
+      $('reports-result').innerHTML = '<span class="text-danger">请求失败: ' + e + '</span>';
+    }
+  };
+
+  // ── ④ 查报告列表 ──
+  $('btn-query-reports').onclick = async function() {
+    const device = $('query-device').value.trim();
+    try {
+      const resp = await fetch(API + '/api/v1/reports?device_id=' + encodeURIComponent(device) + '&page=1&page_size=10');
+      const data = await resp.json();
+      $('query-result').textContent = JSON.stringify(data, null, 2);
+    } catch(e) {
+      $('query-result').textContent = '请求失败: ' + e;
+    }
+  };
+
+  // ── ④ 查订阅列表 ──
+  $('btn-query-subs').onclick = async function() {
+    try {
+      const resp = await fetch(API + '/api/v1/subscriptions');
+      const data = await resp.json();
+      $('query-result').textContent = JSON.stringify(data, null, 2);
+    } catch(e) {
+      $('query-result').textContent = '请求失败: ' + e;
+    }
+  };
+
+  // ── 重置按钮 ──
+  $('btn-reset-events').onclick = function() {
+    $('events-json').value = JSON.stringify({
+      schema_version: "1.1", type: "event_delta",
+      device_id: $('g-device').value, edge_node: "web_sim",
+      ts_upload_ms: 0, round_start_ms: 0, process_elapsed_ms: 12000,
+      student: {id: $('g-student-id').value, name: $('g-student-name').value, cls: $('g-student-cls').value, source: "manual"},
+      events: [{ts: 1000, kind: 0, step: 1, sub: 1}, {ts: 8000, kind: 1, step: 1, sub: 1}],
+      progress: {done: 1, total: 5, current: "装缓冲", current_sub_index: 1}
+    }, null, 2);
+  };
+  $('btn-reset-reports').onclick = function() {
+    const dev = $('g-device').value;
+    $('reports-json').value = JSON.stringify({
+      schema_version: "1.0", device_id: dev, edge_node: "web_sim",
+      ts_upload_ms: 0,
+      student: {id: $('g-student-id').value, name: $('g-student-name').value, cls: $('g-student-cls').value, source: "manual"},
+      round: {
+        process_name: "组装自动机监测", process_type: "assembly",
+        finish_reason: "completed", start_ms: 0, end_ms: 0,
+        duration_ms: 87000, process_elapsed_ms: 87000,
+        events: [{ts: 3200, kind: 0, step: 1, sub: 1}, {ts: 11400, kind: 1, step: 1, sub: 1}],
+        steps: [{idx: 1, name: "装缓冲", state: 2, duration_ms: 8200, start_ms: 3200, end_ms: 11400, interval_ms: 0}],
+        substeps: [{idx: 1, name: "装缓冲", state: 2, duration_ms: 8200, count: 1, total_duration_ms: 8200, timeout: false, start_ms: 3200, end_ms: 11400}],
+        unexecuted: [], substep_counts: [1]
+      }
+    }, null, 2);
+  };
+
+  // ── 页面加载时自动同步一次 ──
+  syncGlobalToJSON();
+})();
+</script>
+{% endblock %}

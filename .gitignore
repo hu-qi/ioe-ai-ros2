@@ -28,3 +28,5 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+app_mgr_object/config/app.db
+app_mgr_object/config/data/

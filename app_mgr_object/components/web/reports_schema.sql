@@ -104,6 +104,11 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     device_id           TEXT    PRIMARY KEY,
     active              INTEGER NOT NULL DEFAULT 0,    -- 0/1
     note                TEXT,
+    edge_ips            TEXT,                           -- 边缘端 IP 列表 (JSON 数组, 如 ["1.2.3.4","1.2.3.5"]); 平台全推
+    edge_port           INTEGER,                        -- 边缘端监听端口（默认 9184）
+    notify_status       TEXT,                           -- 推送通知状态: pending / sent / partial / failed
+    notify_ts           INTEGER,                        -- 最近一次推送通知时刻 (epoch ms)
+    notify_detail       TEXT,                           -- 各 IP 推送结果明细 (JSON 数组)
     subscribed_at_ms    INTEGER,                        -- 首次订阅时刻
     updated_at_ms       INTEGER,                        -- 最近状态变更时刻
     resubscribed        INTEGER NOT NULL DEFAULT 0     -- 0/1 重复订阅标记 (doc/45 §4.1)

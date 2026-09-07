@@ -260,7 +260,15 @@ class ReportRecvPlugin(BasePlugin):
         # ------------------------------------------------------------ #
         @app.post("/api/v1/subscriptions")
         async def subscribe_device(request: Request):
-            """订阅设备 (doc/45 §4.1). 重复订阅 = 更新 note + 保持 active."""
+            """订阅设备 (doc/45 §4.1). 重复订阅 = 更新 note + 保持 active.
+
+            v3 增强: 接受 edge_ips（IP 列表）/edge_port。
+            订阅写入 DB 后，平台**遍历 edge_ips 逐个主动 POST 通知**（全推）：
+              POST http://{edge_ip}:{edge_port}/api/notify_subscribe
+              {"device_id": ..., "platform_ip": ..., "platform_port": 9183}
+            边缘端收到通知后即拿到平台地址，开始轮询订阅状态 + 上报。
+            跨网段场景下，只要平台能路由到 edge_ip，推送即可达。
+            """
             try:
                 payload = await request.json()
             except Exception as e:
@@ -277,7 +285,94 @@ class ReportRecvPlugin(BasePlugin):
                 )
 
             note = payload.get("note", "")
-            result = repo.upsert_subscription(device_id, note)
+            # v3: edge_ips 支持三种输入形式:
+            #   ["1.2.3.4:9184","1.2.3.5:9185"]  (列表, 每个 IP 可带自己的端口)
+            #   ["1.2.3.4","1.2.3.5"]            (列表, 不带端口, 用 edge_port)
+            #   "1.2.3.4:9184,1.2.3.5:9185"      (逗号分隔, 每个 IP 可带端口)
+            #   "1.2.3.4"                        (单个字符串, 向后兼容)
+            #   "1.2.3.4,1.2.3.5"                (逗号分隔)
+            raw_edges = payload.get("edge_ips")
+            if raw_edges is None:
+                # 向后兼容旧字段 edge_ip
+                raw_edges = payload.get("edge_ip")
+            if isinstance(raw_edges, str):
+                if "," in raw_edges:
+                    edge_ips = [s.strip() for s in raw_edges.split(",") if s.strip()]
+                else:
+                    edge_ips = [raw_edges.strip()] if raw_edges.strip() else []
+            elif isinstance(raw_edges, list):
+                edge_ips = [str(s).strip() for s in raw_edges if str(s).strip()]
+            else:
+                edge_ips = []
+
+            edge_port = int(payload.get("edge_port", 9184))
+            result = repo.upsert_subscription(
+                device_id, note, edge_ips=edge_ips, edge_port=edge_port
+            )
+
+            # 遍历 edge_ips 逐个推送（全推，每个独立超时，失败不影响其他）
+            # 每个 IP 可带自己的端口: "1.2.3.4:9185" → host=1.2.3.4, port=9185
+            # 不带端口则用全局 edge_port
+            import urllib.request
+            import json as _json
+            platform_ip = request.client.host if request.client else "127.0.0.1"
+            notify_body = _json.dumps({
+                "device_id": device_id,
+                "platform_ip": platform_ip,
+                "platform_port": 9183,
+                "subscribed_at_ms": result.get("subscribed_at_ms"),
+            }).encode()
+
+            per_ip_results = []
+            ok_count = 0
+            for ip_spec in edge_ips:
+                # 解析 ip:port 格式
+                if ":" in ip_spec:
+                    host, port_str = ip_spec.rsplit(":", 1)
+                    try:
+                        port = int(port_str)
+                    except ValueError:
+                        host, port = ip_spec, edge_port
+                else:
+                    host, port = ip_spec, edge_port
+
+                ip_result = {"ip": ip_spec, "host": host, "port": port, "ok": False, "error": None}
+                try:
+                    notify_url = f"http://{host}:{port}/api/notify_subscribe"
+                    req = urllib.request.Request(
+                        notify_url, data=notify_body, method="POST",
+                        headers={"Content-Type": "application/json"},
+                    )
+                    with urllib.request.urlopen(req, timeout=3) as resp:
+                        ip_result["ok"] = (resp.status == 200)
+                        if ip_result["ok"]:
+                            ok_count += 1
+                except Exception as e:
+                    ip_result["error"] = str(e)
+                per_ip_results.append(ip_result)
+
+            # 汇总状态: 全成功=sent, 部分成功=partial, 全失败=failed, 无 IP=pending
+            if not edge_ips:
+                notify_status = "pending"
+            elif ok_count == len(edge_ips):
+                notify_status = "sent"
+            elif ok_count > 0:
+                notify_status = "partial"
+            else:
+                notify_status = "failed"
+
+            repo.update_notify_status(
+                device_id,
+                notify_status,
+                notify_detail=_json.dumps(per_ip_results),
+            )
+
+            result["notify"] = {
+                "status": notify_status,
+                "ok_count": ok_count,
+                "total": len(edge_ips),
+                "per_ip": per_ip_results,
+            }
             return {"code": 0, "message": "ok", "data": result}
 
         @app.get("/api/v1/subscriptions/{device_id}")

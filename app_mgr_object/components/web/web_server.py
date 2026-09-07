@@ -291,6 +291,17 @@ class WebServer:
                     {"config": self.config}
                 )
             return HTMLResponse("<h1>测试页面</h1>")
+
+        @self.app.get("/report_debug")
+        async def report_debug(request: Request):
+            """报告接收联调页"""
+            if self.templates:
+                return self.templates.TemplateResponse(
+                    request,
+                    "report_debug.html",
+                    {"config": self.config}
+                )
+            return HTMLResponse("<h1>报告接收联调</h1>")
         
         # ==================== API路由 - 状态查询 ====================
         @self.app.get("/api/status")
