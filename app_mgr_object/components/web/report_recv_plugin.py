@@ -122,7 +122,7 @@ class ReportRecvPlugin(BasePlugin):
         async def reports_page(request: Request):
             """报告管理页：列表多条件筛选 + 详情查看."""
             return templates.TemplateResponse(
-                "reports.html", {"request": request}
+                request, "reports.html"
             )
 
         # ------------------------------------------------------------ #

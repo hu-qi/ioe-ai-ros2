@@ -1432,7 +1432,7 @@ class WebServer:
 
         # ==================== 学员管理插件路由 (doc/69) ====================
         try:
-            from ..plugins.student_mgr_plugin import StudentMgrPlugin
+            from ...plugins.student_mgr_plugin import StudentMgrPlugin
             student_plugin = StudentMgrPlugin(
                 node=self.node,
                 config=self.config.get('student_mgr', {})
@@ -1449,7 +1449,7 @@ class WebServer:
 
         # ==================== 统计分析插件路由 (doc/71) ====================
         try:
-            from ..plugins.report_analysis_plugin import ReportAnalysisPlugin
+            from ...plugins.report_analysis_plugin import ReportAnalysisPlugin
             analysis_plugin = ReportAnalysisPlugin(
                 node=self.node,
                 config=self.config.get('report_analysis', {})
@@ -1466,7 +1466,7 @@ class WebServer:
 
         # ==================== 教学看板插件路由 (doc/72) ====================
         try:
-            from ..plugins.teaching_dashboard_plugin import TeachingDashboardPlugin
+            from ...plugins.teaching_dashboard_plugin import TeachingDashboardPlugin
             dashboard_plugin = TeachingDashboardPlugin(
                 node=self.node,
                 config=self.config.get('teaching_dashboard', {})

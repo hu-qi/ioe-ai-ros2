@@ -137,7 +137,7 @@ class StudentMgrPlugin(BasePlugin):
         async def students_page(request: Request):
             from fastapi.responses import HTMLResponse
             return HTMLResponse(
-                templates.TemplateResponse("students.html", {"request": request})
+                templates.TemplateResponse(request, "students.html")
                 .body.decode("utf-8")
                 if hasattr(templates, "TemplateResponse") else ""
             )
