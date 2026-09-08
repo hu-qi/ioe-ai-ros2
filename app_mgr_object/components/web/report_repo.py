@@ -423,6 +423,13 @@ class ReportRepo:
         if filters.get("end_ms"):
             where_parts.append("start_ms <= ?")
             params.append(filters["end_ms"])
+        if filters.get("step_index") is not None:
+            # 下钻过滤（doc/72 V-03）：仅返回包含指定步骤的报告
+            where_parts.append(
+                "EXISTS (SELECT 1 FROM report_steps rs "
+                "WHERE rs.report_id = reports.report_id AND rs.idx = ?)"
+            )
+            params.append(filters["step_index"])
 
         where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
         offset = (page - 1) * page_size

@@ -116,6 +116,16 @@ class ReportRecvPlugin(BasePlugin):
         logger = self.logger
 
         # ------------------------------------------------------------ #
+        # 0. 报告管理页面
+        # ------------------------------------------------------------ #
+        @app.get("/reports")
+        async def reports_page(request: Request):
+            """报告管理页：列表多条件筛选 + 详情查看."""
+            return templates.TemplateResponse(
+                "reports.html", {"request": request}
+            )
+
+        # ------------------------------------------------------------ #
         # 1. 接收整包报告 (doc/38 §1)
         # ------------------------------------------------------------ #
         @app.post("/api/v1/reports")
@@ -219,10 +229,11 @@ class ReportRecvPlugin(BasePlugin):
             finish_reason: str = "",
             start_ms: int = 0,
             end_ms: int = 0,
+            step_index: int = -1,
             page: int = 1,
             page_size: int = 20
         ):
-            """报告列表检索 (多条件过滤 + 分页)."""
+            """报告列表检索 (多条件过滤 + 分页). step_index >= 0 时按步骤下钻过滤."""
             if page_size > 100:
                 page_size = 100
 
@@ -237,6 +248,8 @@ class ReportRecvPlugin(BasePlugin):
                 filters["start_ms"] = start_ms
             if end_ms:
                 filters["end_ms"] = end_ms
+            if step_index >= 0:
+                filters["step_index"] = step_index
 
             result = repo.list_reports(filters, page, page_size)
             return {"code": 0, "message": "ok", "data": result}

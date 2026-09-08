@@ -287,17 +287,18 @@
             var reportsArea = document.getElementById('reports-area');
             var recent = res.data.recent_reports || [];
             if (recent.length === 0) {
-                reportsArea.innerHTML = '<div class="text-center text-muted py-3">暂无考试记录，待报告插件接入</div>';
+                reportsArea.innerHTML = '<div class="text-center text-muted py-3">暂无考试记录</div>';
             } else {
                 reportsArea.innerHTML = '<table class="table table-sm"><thead><tr>' +
-                    '<th>报告ID</th><th>设备</th><th>用时</th><th>得分</th><th>上报时间</th>' +
+                    '<th>报告ID</th><th>设备</th><th>用时</th><th>得分</th><th>上报时间</th><th>操作</th>' +
                     '</tr></thead><tbody>' +
                     recent.map(function (r) {
                         return '<tr><td>' + escapeHtml(r.report_id || '') + '</td>' +
                             '<td>' + escapeHtml(r.device_id || '') + '</td>' +
                             '<td>' + escapeHtml(r.duration_ms || '') + '</td>' +
                             '<td>' + escapeHtml(r.total_score || '') + '</td>' +
-                            '<td>' + fmtDate(r.ts_upload_ms) + '</td></tr>';
+                            '<td>' + fmtDate(r.ts_upload_ms) + '</td>' +
+                            '<td><a href="/reports?student_id=' + encodeURIComponent(s.id) + '">查看全部</a></td></tr>';
                     }).join('') +
                     '</tbody></table>';
             }

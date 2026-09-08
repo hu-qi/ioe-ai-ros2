@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}报告管理 - AI智能教学分析平台{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-3 pt-2">
+
+    <!-- 检索栏 -->
+    <div class="card mb-2">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">学员工号</label>
+                    <input type="text" class="form-control form-control-sm" id="search-student"
+                           placeholder="如 S001">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">设备 ID</label>
+                    <input type="text" class="form-control form-control-sm" id="search-device"
+                           placeholder="如 DEV01">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">完成状态</label>
+                    <select class="form-select form-select-sm" id="search-finish">
+                        <option value="" selected>全部</option>
+                        <option value="completed">已完成</option>
+                        <option value="interrupted">中断</option>
+                        <option value="timeout">超时</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">开始日期</label>
+                    <input type="date" class="form-control form-control-sm" id="search-start">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label mb-1 small">结束日期</label>
+                    <input type="date" class="form-control form-control-sm" id="search-end">
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-accent btn-sm w-100" id="btn-search">
+                        <i class="fas fa-search"></i> 搜索
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 报告列表 -->
+    <div class="card">
+        <div class="card-header">
+            <i class="fas fa-file-alt"></i> 报告列表
+            <span class="ms-2 small text-muted" id="list-count">共 0 条</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="task-table-wrap">
+                <table class="table task-table mb-0" id="reports-table">
+                    <thead>
+                        <tr>
+                            <th>报告 ID</th>
+                            <th>学员</th>
+                            <th>设备</th>
+                            <th>流程</th>
+                            <th>完成状态</th>
+                            <th>得分</th>
+                            <th>用时</th>
+                            <th>上报时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reports-tbody">
+                        <tr><td colspan="9" class="text-center text-muted py-3">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <!-- 分页 -->
+        <div class="card-footer d-flex justify-content-between align-items-center">
+            <span class="small text-muted" id="page-info">第 1/1 页</span>
+            <div>
+                <button class="btn btn-outline btn-sm me-1" id="btn-prev" disabled>
+                    <i class="fas fa-chevron-left"></i> 上一页
+                </button>
+                <button class="btn btn-outline btn-sm" id="btn-next" disabled>
+                    下一页 <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 报告详情抽屉（隐藏，点击"详情"时展开） -->
+    <div class="card mt-2" id="detail-card" style="display:none;">
+        <div class="card-header">
+            <i class="fas fa-file-alt"></i> 报告详情 <span class="text-muted small" id="d-report-id"></span>
+            <button class="btn btn-outline btn-sm float-end" id="btn-close-detail">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <table class="table table-sm table-borderless">
+                        <tr><td class="text-muted" style="width:100px">学员</td><td id="d-student"></td></tr>
+                        <tr><td class="text-muted">设备</td><td id="d-device"></td></tr>
+                        <tr><td class="text-muted">流程</td><td id="d-process"></td></tr>
+                        <tr><td class="text-muted">完成状态</td><td id="d-finish"></td></tr>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <table class="table table-sm table-borderless">
+                        <tr><td class="text-muted" style="width:100px">得分</td><td id="d-score"></td></tr>
+                        <tr><td class="text-muted">用时</td><td id="d-duration"></td></tr>
+                        <tr><td class="text-muted">上报时间</td><td id="d-upload"></td></tr>
+                        <tr><td class="text-muted">数据状态</td><td id="d-stub"></td></tr>
+                    </table>
+                </div>
+            </div>
+            <hr>
+            <h6 class="text-muted"><i class="fas fa-list-ol"></i> 步骤明细</h6>
+            <div class="task-table-wrap">
+                <table class="table task-table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>步骤名</th>
+                            <th>状态</th>
+                            <th>用时 (ms)</th>
+                            <th>间隔 (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="d-steps-tbody">
+                        <tr><td colspan="5" class="text-center text-muted py-2">无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <h6 class="text-muted mt-3"><i class="fas fa-sitemap"></i> 子步骤明细</h6>
+            <div class="task-table-wrap">
+                <table class="table task-table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>子步骤名</th>
+                            <th>次数</th>
+                            <th>总用时 (ms)</th>
+                            <th>超时</th>
+                        </tr>
+                    </thead>
+                    <tbody id="d-substeps-tbody">
+                        <tr><td colspan="5" class="text-center text-muted py-2">无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <h6 class="text-muted mt-3"><i class="fas fa-stream"></i> 事件流</h6>
+            <div class="task-table-wrap" style="max-height:240px;">
+                <table class="table task-table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>时间戳 (ms)</th>
+                            <th>类型</th>
+                            <th>步骤</th>
+                            <th>子步骤</th>
+                            <th>来源</th>
+                        </tr>
+                    </thead>
+                    <tbody id="d-events-tbody">
+                        <tr><td colspan="5" class="text-center text-muted py-2">无数据</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/reports.js"></script>
+{% endblock %}

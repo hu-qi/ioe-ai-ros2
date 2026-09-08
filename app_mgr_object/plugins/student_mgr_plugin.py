@@ -79,6 +79,34 @@ class StudentMgrPlugin(BasePlugin):
     # ------------------------------------------------------------------
     # 路由注册钩子（由 web_server 调用）
     # ------------------------------------------------------------------
+    def _query_recent_reports(self, student_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        查询学员最近的考试报告（P1 reports 表，doc/70）。
+
+        与报告接收插件共用 config/app.db；reports 表不存在时（P1 未部署）
+        降级为空列表，保持学员插件可独立部署。
+        """
+        import sqlite3
+        try:
+            conn = sqlite3.connect(self._db_path)
+            conn.row_factory = sqlite3.Row
+            try:
+                rows = conn.execute(
+                    """SELECT report_id, device_id, process_name, process_type,
+                              finish_reason, is_stub, duration_ms, total_score, ts_upload_ms
+                       FROM reports
+                       WHERE student_id = ?
+                       ORDER BY ts_upload_ms DESC
+                       LIMIT ?""",
+                    (student_id, limit)
+                ).fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                conn.close()
+        except sqlite3.OperationalError:
+            # reports 表尚未建表（P1 未部署）→ 独立部署降级
+            return []
+
     def register_routes(self, app, templates) -> None:
         """
         注册学员管理路由组。
@@ -192,9 +220,10 @@ class StudentMgrPlugin(BasePlugin):
                     status_code=404,
                     content={"code": 404, "message": "学员不存在", "data": {}}
                 )
+            recent_reports = self._query_recent_reports(student_id)
             return {
                 "code": 0, "message": "ok",
-                "data": {"student": student, "recent_reports": []}
+                "data": {"student": student, "recent_reports": recent_reports}
             }
 
         # ------------------------------------------------------------ #

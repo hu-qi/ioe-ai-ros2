@@ -95,7 +95,8 @@
             tbody.innerHTML = points.map(function (p, i) {
                 return '<tr>' +
                     '<td>' + (i + 1) + '</td>' +
-                    '<td>' + escapeHtml(p.name) + ' <small class="text-muted">(步骤' + p.idx + ')</small></td>' +
+                    '<td><a href="/reports?step_index=' + encodeURIComponent(p.idx) + '">' +
+                        escapeHtml(p.name) + '</a> <small class="text-muted">(步骤' + p.idx + ')</small></td>' +
                     '<td>' + fmtPercent(p.omission_rate) + '</td>' +
                     '<td>' + fmtPercent(p.timeout_rate) + '</td>' +
                     '<td><span class="badge bg-warning">' + p.composite_score.toFixed(3) + '</span></td>' +
