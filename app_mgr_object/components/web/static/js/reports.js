@@ -137,6 +137,16 @@
             $('#d-process').text(r.process_name || r.process_type || '-');
             $('#d-finish').html(FINISH_LABELS[r.finish_reason] || esc(r.finish_reason || '-'));
             $('#d-score').text(r.total_score !== null && r.total_score !== undefined ? r.total_score : '-');
+            // P1: 等级徽章
+            if (r.grade_level) {
+                $('#d-grade').text(r.grade_level).show()
+                    .removeClass('bg-success bg-primary bg-warning bg-secondary bg-danger')
+                    .addClass(r.grade_level === '优秀' ? 'bg-success'
+                        : r.grade_level === '良好' ? 'bg-primary'
+                        : r.grade_level === '合格' ? 'bg-warning' : 'bg-danger');
+            } else {
+                $('#d-grade').hide();
+            }
             $('#d-duration').text(fmtDuration(r.duration_ms));
             $('#d-upload').text(fmtTs(r.ts_upload_ms));
             $('#d-stub').html(r.is_stub
@@ -159,21 +169,30 @@
                 $('#d-steps-tbody').html('<tr><td colspan="5" class="text-center text-muted py-2">无数据</td></tr>');
             }
 
-            // 子步骤明细
+            // 子步骤明细（P1: 得分/顺序列）
             var substeps = d.substeps || [];
             if (substeps.length) {
                 $('#d-substeps-tbody').html(substeps.map(function (s) {
+                    var score = (s.score !== null && s.score !== undefined) ? s.score : '-';
+                    var seq = (s.sequence_error === 1)
+                        ? '<span class="text-danger">错误</span>'
+                        : (s.sequence_error === 0 ? '正确' : '-');
                     return '<tr>' +
                         '<td>' + esc(s.idx) + '</td>' +
                         '<td>' + esc(s.name || '-') + '</td>' +
                         '<td>' + (s.count !== null && s.count !== undefined ? s.count : '-') + '</td>' +
                         '<td>' + (s.total_duration_ms !== null && s.total_duration_ms !== undefined ? s.total_duration_ms : '-') + '</td>' +
                         '<td>' + (s.timeout ? '<span class="text-danger">是</span>' : '否') + '</td>' +
+                        '<td>' + esc(score) + '</td>' +
+                        '<td>' + seq + '</td>' +
                         '</tr>';
                 }).join(''));
             } else {
-                $('#d-substeps-tbody').html('<tr><td colspan="5" class="text-center text-muted py-2">无数据</td></tr>');
+                $('#d-substeps-tbody').html('<tr><td colspan="7" class="text-center text-muted py-2">无数据</td></tr>');
             }
+
+            // P3: 证据抓拍图（按 device_id + round.start_ms 关联）
+            loadEvidence(r.device_id, r.start_ms);
 
             // 事件流
             var events = d.events || [];
@@ -202,6 +221,51 @@
 
     // 详情按钮暴露给表格内联 onclick
     window.__showReportDetail = showDetail;
+
+    // ---------------- P3: 证据抓拍图加载 ----------------
+    function loadEvidence(deviceId, roundStartMs) {
+        var $box = $('#d-evidence');
+        $box.empty();
+        if (!deviceId || !roundStartMs) {
+            $box.html('<span class="text-muted small">无关联证据</span>');
+            return;
+        }
+        getJson('/api/v1/evidence?device_id=' + encodeURIComponent(deviceId) +
+                '&round_start_ms=' + encodeURIComponent(roundStartMs))
+            .then(function (d) {
+                var list = (d.data && d.data.evidence) || [];
+                if (!list.length) {
+                    $box.html('<span class="text-muted small">无关联证据</span>');
+                    return;
+                }
+                $box.html(list.map(function (ev) {
+                    var img = ev.id
+                        ? '/api/v1/evidence/' + ev.id + '/image?thumb=1'
+                        : '';
+                    var full = ev.id ? '/api/v1/evidence/' + ev.id + '/image' : '';
+                    var label = 'sub' + ev.sub + ' · t' + ev.ts;
+                    var badge = ev.jpg_path
+                        ? '<span class="badge bg-success">已转JPG</span>'
+                        : '<span class="badge bg-secondary">BMP原始</span>';
+                    if (!img) {
+                        // 端侧路径登记记录（平台无文件）
+                        return '<div class="text-muted small border rounded p-2">' +
+                            esc(label) + ' <span class="badge bg-secondary">端侧文件</span></div>';
+                    }
+                    return '<div class="text-center">' +
+                        '<a href="' + full + '" target="_blank">' +
+                        '<img src="' + img + '" alt="' + esc(label) + '" ' +
+                        'style="height:96px;border-radius:4px;border:1px solid #ddd;" ' +
+                        'onerror="this.parentNode.innerHTML=\'<div class=\\\'text-muted small border rounded p-2\\\'>图片不可用</div>\'">' +
+                        '</a>' +
+                        '<div class="small text-muted">' + esc(label) + ' ' + badge + '</div>' +
+                        '</div>';
+                }).join(''));
+            })
+            .catch(function () {
+                $box.html('<span class="text-muted small">证据加载失败</span>');
+            });
+    }
 
     // ---------------- 事件绑定 ----------------
     $(function () {

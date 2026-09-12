@@ -106,7 +106,7 @@
                 </div>
                 <div class="col-md-6">
                     <table class="table table-sm table-borderless">
-                        <tr><td class="text-muted" style="width:100px">得分</td><td id="d-score"></td></tr>
+                        <tr><td class="text-muted" style="width:100px">得分</td><td><span id="d-score"></span> <span id="d-grade" class="badge bg-secondary" style="display:none;"></span></td></tr>
                         <tr><td class="text-muted">用时</td><td id="d-duration"></td></tr>
                         <tr><td class="text-muted">上报时间</td><td id="d-upload"></td></tr>
                         <tr><td class="text-muted">数据状态</td><td id="d-stub"></td></tr>
@@ -141,13 +141,17 @@
                             <th>次数</th>
                             <th>总用时 (ms)</th>
                             <th>超时</th>
+                            <th>得分</th>
+                            <th>顺序</th>
                         </tr>
                     </thead>
                     <tbody id="d-substeps-tbody">
-                        <tr><td colspan="5" class="text-center text-muted py-2">无数据</td></tr>
+                        <tr><td colspan="7" class="text-center text-muted py-2">无数据</td></tr>
                     </tbody>
                 </table>
             </div>
+            <h6 class="text-muted mt-3"><i class="fas fa-camera"></i> 证据抓拍 (P3)</h6>
+            <div id="d-evidence" class="d-flex flex-wrap gap-2"></div>
             <h6 class="text-muted mt-3"><i class="fas fa-stream"></i> 事件流</h6>
             <div class="task-table-wrap" style="max-height:240px;">
                 <table class="table task-table table-sm mb-0">

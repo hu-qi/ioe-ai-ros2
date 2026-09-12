@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}诊断中心{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h5><i class="fas fa-stethoscope"></i> 教学诊断中心 <span class="text-muted small">（P2/P4：规则驱动 + 证据关联，初版）</span></h5>
+
+    <!-- 查询条件 -->
+    <div class="card">
+        <div class="card-body py-2">
+            <div class="row g-2 align-items-end">
+                <div class="col-auto">
+                    <label class="form-label small mb-0">班级</label>
+                    <input type="text" class="form-control form-control-sm" id="q-cls" placeholder="如：一班（空=全部）">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">工序</label>
+                    <select class="form-select form-select-sm" id="q-process">
+                        <option value="">全部工序</option>
+                        <option value="拆解">拆解</option>
+                        <option value="组装">组装</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-primary btn-sm" id="btn-run"><i class="fas fa-search"></i> 执行诊断</button>
+                </div>
+            </div>
+        </div>
+    </card>
+
+    <!-- 诊断结果 -->
+    <div class="card mt-2" id="diag-result-card" style="display:none;">
+        <div class="card-header"><i class="fas fa-clipboard-list"></i> 诊断结果 <span class="text-muted small" id="diag-count"></span></div>
+        <div class="card-body">
+            <div id="diag-list"></div>
+        </div>
+    </div>
+    <div class="text-muted small mt-2" id="diag-empty" style="display:none;">
+        无诊断结果（指标均未超阈值，或所选范围无数据）。
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/diagnosis.js"></script>
+{% endblock %}
