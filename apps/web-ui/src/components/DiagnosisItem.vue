@@ -60,15 +60,16 @@ const fmtMetric = computed(() => {
 </script>
 
 <style scoped>
-.diag-item { padding: 12px 16px; border-left: 4px solid var(--c-warning); }
+.diag-item { padding: 12px 16px; border-left: 4px solid var(--c-warning); transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+.diag-item:hover { box-shadow: var(--shadow-hover); }
 .diag-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .diag-warn { color: var(--c-warning); font-weight: 700; }
 .diag-text { font-size: var(--fs-h3); font-weight: 600; color: var(--c-text-main); flex: 1; }
-.diag-arrow { color: var(--c-text-weak); transition: transform .2s; }
+.diag-arrow { color: var(--c-text-weak); transition: transform var(--t-med); }
 .diag-arrow.open { transform: rotate(180deg); }
 .diag-advice {
   margin-top: 8px; font-size: var(--fs-body); color: var(--c-text-sub);
-  background: #FFF8E8; border-radius: 4px; padding: 6px 10px;
+  background: var(--c-accent-light); border-radius: 4px; padding: 6px 10px;
 }
 .diag-evidence { display: flex; gap: 8px; margin-top: 8px; }
 .diag-detail { display: flex; flex-direction: column; gap: 4px; }

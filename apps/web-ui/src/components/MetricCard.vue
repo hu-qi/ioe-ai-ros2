@@ -49,11 +49,14 @@ const display = computed(() => {
 .metric-card { position: relative; display: flex; padding: 0; overflow: hidden; min-height: 128px; }
 .metric-bar { width: 4px; flex: none; }
 .metric-body { padding: 16px 20px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
-.metric-label { font-size: var(--fs-h3); color: var(--c-text-sub); }
-.metric-num { font-size: var(--fs-num); font-weight: 700; line-height: var(--lh-num); font-variant-numeric: tabular-nums; }
+.metric-label { font-size: var(--fs-h3); color: var(--c-text-sub); transition: color var(--t-fast); }
+.metric-card:hover .metric-label { color: var(--c-text-main); }
+.metric-num { font-size: var(--fs-num); font-weight: 700; line-height: var(--lh-num); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .metric-suffix { font-size: 16px; font-weight: 600; margin-left: 2px; }
 .metric-aux { font-size: var(--fs-aux); color: var(--c-text-weak); display: flex; gap: 8px; margin-top: auto; }
 .metric-aux .up { color: var(--c-success); }
 .metric-aux .down { color: var(--c-danger); }
-.metric-card.selected { box-shadow: 0 0 0 2px var(--c-primary), var(--shadow-card); }
+/* 选中态：描边 + 左色条加宽（高信号状态变化，动效克制） */
+.metric-card.selected { box-shadow: var(--ring-focus), var(--shadow-card); border-color: transparent; }
+.metric-card.selected .metric-bar { width: 6px; }
 </style>

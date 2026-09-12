@@ -408,6 +408,8 @@ onUnmounted(() => window.removeEventListener('resize', onResize))
 
 <style scoped>
 .rp-tabs-bar { padding: 4px 16px 0; }
+.rp-tabs-bar :deep(.el-tabs__item) { font-size: var(--fs-body); transition: color var(--t-fast); }
+.rp-tabs-bar :deep(.el-tabs__active-bar) { height: 3px; border-radius: 2px; }
 .tab-body { margin-top: 16px; }
 .pager { display: flex; justify-content: flex-end; padding-top: 12px; }
 .fb-label { color: var(--c-text-sub); font-size: var(--fs-body); }

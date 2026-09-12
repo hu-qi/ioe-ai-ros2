@@ -136,7 +136,7 @@ function goDetail() {
 .g-primary { color: var(--c-primary); }
 .g-warning { color: var(--c-accent); }
 .g-danger { color: var(--c-danger); }
-.dw-section { font-size: var(--fs-h3); font-weight: 600; margin: 14px 0 8px; padding-left: 8px; border-left: 3px solid var(--c-primary); }
+.dw-section { font-size: var(--fs-h3); font-weight: 600; margin: 14px 0 8px; padding-left: 8px; border-left: 3px solid var(--c-primary); line-height: var(--lh-h3); }
 .dw-scores { display: flex; gap: 8px; }
 .dw-score { background: var(--c-bg); border-radius: 6px; padding: 4px 10px; font-weight: 700; }
 .dw-weak { display: flex; flex-direction: column; gap: 6px; }

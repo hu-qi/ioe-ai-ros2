@@ -1,23 +1,32 @@
 /* ============================================================
  * design.css — 设计规范变量与基础样式（doc/05.1 视觉与交互规范）
- * 色彩/字号/布局变量统一出口，组件内通过 var(--*) 引用。
+ * 色彩/字号/布局/阴影/动效统一出口，组件内通过 var(--*) 引用。
+ * 设计方向（frontend-design-direction skill）：dense · quiet · scannable，
+ * 蓝灰基底 + 橙色强调多维度色板，动效仅用于状态提示。
  * ============================================================ */
 :root {
   /* 主色板 */
   --c-primary: #2B5CE6;
+  --c-primary-deep: #1E44B8;
   --c-primary-light: #E8EFFF;
   --c-accent: #F5A623;
+  --c-accent-light: #FFF8E8;
   --c-success: #27AE60;
+  --c-success-light: #EAF7F0;
   --c-warning: #E67E22;
+  --c-warning-light: #FDF1E7;
   --c-danger: #E74C3C;
+  --c-danger-light: #FDEEEC;
 
   /* 中性色 */
   --c-text-main: #1F2D3D;
   --c-text-sub: #5A6B7F;
   --c-text-weak: #8A9AAE;
-  --c-bg: #F5F7FA;
+  --c-bg: #F3F5F9;
+  --c-bg-deep: #EBEFF5;
   --c-card: #FFFFFF;
   --c-divider: #E4E8EE;
+  --c-divider-strong: #D5DBE4;
 
   /* 字号层级（px/行高） */
   --fs-h1: 20px;   --lh-h1: 28px;
@@ -31,13 +40,23 @@
   /* 布局 */
   --nav-h: 56px;
   --content-max: 1600px;
-  --radius: 8px;
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
-  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, .04), 0 2px 8px rgba(16, 24, 40, .06);
+  --shadow-hover: 0 4px 12px rgba(16, 24, 40, .10), 0 2px 4px rgba(16, 24, 40, .06);
+  --ring-focus: 0 0 0 3px rgba(43, 92, 230, .18);
 
-  /* 状态色变量（Element Plus 覆写用） */
+  /* 动效（克制：仅状态变化） */
+  --t-fast: .15s ease;
+  --t-med: .22s ease;
+
+  /* Element Plus 令牌对齐 */
   --el-color-primary: #2B5CE6;
+  --el-color-success: #27AE60;
+  --el-color-warning: #E67E22;
+  --el-color-danger: #E74C3C;
   --el-border-radius-base: 6px;
+  --el-box-shadow-light: var(--shadow-card);
 }
 
 html, body, #app { height: 100%; margin: 0; }
@@ -46,12 +65,22 @@ body {
                "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   font-size: var(--fs-body);
   color: var(--c-text-main);
-  background: var(--c-bg);
+  background:
+    radial-gradient(1200px 400px at 20% -10%, rgba(43, 92, 230, .045), transparent 60%),
+    var(--c-bg);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ===== 全局滚动条（窄、低对比，长列表页更安静） ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #C9D2DE; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #AEB9C8; }
+::-webkit-scrollbar-track { background: transparent; }
 
 /* ===== 通用卡片 ===== */
 .card {
   background: var(--c-card);
+  border: 1px solid var(--c-divider);
   border-radius: var(--radius);
   box-shadow: var(--shadow-card);
   padding: 16px 20px;
@@ -64,26 +93,41 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  letter-spacing: .01em;
 }
 .card-title .title-extra { margin-left: auto; font-size: var(--fs-aux); color: var(--c-text-weak); display: flex; align-items: center; gap: 8px; }
 
-/* 悬停浮起卡片（可点击卡片用） */
-.card.hoverable { cursor: pointer; transition: box-shadow .2s, transform .15s; }
-.card.hoverable:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+/* 悬停浮起卡片（仅可点击卡片响应，避免全员浮动） */
+.card.hoverable { cursor: pointer; transition: box-shadow var(--t-med), transform var(--t-med), border-color var(--t-med); }
+.card.hoverable:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); border-color: var(--c-divider-strong); }
 
 /* ===== 通用链接 ===== */
-.link { color: var(--c-primary); cursor: pointer; text-decoration: none; }
-.link:hover { text-decoration: underline; }
+.link { color: var(--c-primary); cursor: pointer; text-decoration: none; transition: color var(--t-fast); }
+.link:hover { text-decoration: underline; text-underline-offset: 3px; color: var(--c-primary-deep); }
 
 /* ===== 等宽时间戳 ===== */
-.ts { font-family: "JetBrains Mono", Consolas, Menlo, monospace; font-size: var(--fs-aux); color: var(--c-text-weak); }
+.ts { font-family: "JetBrains Mono", Consolas, Menlo, monospace; font-size: var(--fs-aux); color: var(--c-text-weak); font-variant-numeric: tabular-nums; }
 
-/* ===== 表格统一（Element Plus 覆写） ===== */
-.el-table { --el-table-row-hover-bg-color: #F5F7FA; }
-.el-table th.el-table__cell { background: #F5F7FA; color: var(--c-text-sub); font-size: 12px; font-weight: 500; }
+/* ===== Element Plus 表格统一：紧凑密度、轻表头 ===== */
+.el-table { --el-table-row-hover-bg-color: #F5F7FA; --el-table-border-color: var(--c-divider); }
+.el-table th.el-table__cell {
+  background: var(--c-bg);
+  color: var(--c-text-sub);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: .02em;
+}
+.el-table .el-table__cell { padding: 9px 0; }
 
 /* 数字右对齐列 */
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ===== 标签统一（低饱和底 + 同色深字，替代高饱和实底） ===== */
+.el-tag { border-radius: 5px; font-weight: 500; }
+
+/* ===== 按钮：轻微过渡 ===== */
+.el-button { transition: background var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast); }
+.el-button--primary:not(.is-plain):not(.is-link):focus-visible { box-shadow: var(--ring-focus); }
 
 /* ===== 骨架屏辅助 ===== */
 .skel-line { background: linear-gradient(90deg, #EEF1F5 25%, #E4E8EE 50%, #EEF1F5 75%);
@@ -91,13 +135,27 @@ body {
 @keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* ===== 呼吸圆点（实时状态） ===== */
-.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-success); display: inline-block; }
-.live-dot.on { animation: breath 2s ease-in-out infinite; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-success); display: inline-block;
+  box-shadow: 0 0 0 0 rgba(39, 174, 96, .45); }
+.live-dot.on { animation: breath 2.2s ease-in-out infinite; }
 .live-dot.off { background: var(--c-text-weak); animation: none; }
-@keyframes breath { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes breath {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(39, 174, 96, .35); }
+  50% { opacity: .55; box-shadow: 0 0 0 5px rgba(39, 174, 96, 0); }
+}
 
 /* ===== 内容区（最大 1600 居中，左右 24px） ===== */
 .page-wrap { max-width: var(--content-max); margin: 0 auto; padding: 20px 24px 32px; }
 
 /* 空态紧凑化 */
 .el-empty { --el-empty-padding: 24px 0; }
+.el-empty__description { margin-top: 8px; }
+.el-empty__description p { font-size: var(--fs-aux); color: var(--c-text-weak); }
+
+/* ===== Drawer 统一圆角头部 ===== */
+.el-drawer__header { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--c-divider); color: var(--c-text-main); font-weight: 600; }
+.el-drawer__body { padding-top: 4px; }
+
+/* ===== Dialog/Tooltip 圆角对齐 ===== */
+.el-dialog { border-radius: var(--radius); }
+.el-popper.is-light { border-radius: var(--radius-sm); }

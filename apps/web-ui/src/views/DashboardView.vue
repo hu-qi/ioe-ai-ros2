@@ -288,16 +288,21 @@ function goReportsDiagnosis() { go('/reports') }
 /* ① 实时训练动态 */
 .rt-panel { min-height: 300px; display: flex; flex-direction: column; }
 .rt-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 32px 0; }
-.rt-empty-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--c-primary-light); }
+.rt-empty-icon { width: 44px; height: 44px; border-radius: 50%; background: var(--c-primary-light);
+  box-shadow: inset 0 0 0 6px rgba(43, 92, 230, .06); }
 .rt-empty-title { color: var(--c-text-sub); }
 .rt-empty-sub { font-size: var(--fs-aux); color: var(--c-text-weak); }
 .rt-devices { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; overflow: auto; }
+.rt-device { padding: 10px 12px; border: 1px solid var(--c-divider); border-radius: var(--radius-sm);
+  background: #FBFCFE; transition: border-color var(--t-fast); }
+.rt-device:hover { border-color: var(--c-divider-strong); }
 .rt-head { display: flex; align-items: center; gap: 8px; }
 .rt-student { font-size: var(--fs-h3); }
 .rt-device-id { margin-left: auto; }
 .rt-progress { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
-.rt-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--c-bg); overflow: hidden; }
-.rt-fill { height: 100%; background: var(--c-primary); border-radius: 4px; transition: width .4s; }
+.rt-bar { flex: 1; height: 8px; border-radius: 4px; background: var(--c-bg-deep); overflow: hidden; }
+.rt-fill { height: 100%; border-radius: 4px; transition: width .4s ease;
+  background: linear-gradient(90deg, var(--c-primary), #4A79F0); }
 .rt-frac { font-size: var(--fs-aux); color: var(--c-text-sub); font-variant-numeric: tabular-nums; }
 .rt-current { margin-top: 4px; font-size: var(--fs-body); color: var(--c-text-sub); }
 .rt-elapsed { margin-left: 8px; font-size: var(--fs-aux); color: var(--c-text-weak); }
@@ -317,7 +322,9 @@ function goReportsDiagnosis() { go('/reports') }
 .diag-loading, .diag-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .att-panel { min-height: 320px; }
 .att-list { margin-top: 8px; display: flex; flex-direction: column; }
-.att-row { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--c-divider); }
+.att-row { display: flex; align-items: center; gap: 10px; padding: 10px 6px; border-radius: var(--radius-sm);
+  border-bottom: 1px solid var(--c-divider); transition: background var(--t-fast); }
+.att-row:hover { background: var(--c-bg); }
 .att-row:last-child { border-bottom: none; }
 .att-name { font-size: var(--fs-h3); flex: none; }
 .att-cls { color: var(--c-text-sub); font-size: var(--fs-aux); }
@@ -326,4 +333,5 @@ function goReportsDiagnosis() { go('/reports') }
 /* ⑤ 最近完成轮次 */
 .recent-panel { margin-top: 16px; }
 .recent-panel .el-table { margin-top: 8px; }
+.recent-panel :deep(.el-table__row) { cursor: pointer; }
 </style>
