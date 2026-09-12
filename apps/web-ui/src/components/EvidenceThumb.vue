@@ -1,10 +1,10 @@
 <template>
-  <div class="ev-thumb" :style="{ width: width + 'px', height: height + 'px' }" @click.stop="open" v-if="url">
-    <img :src="url" loading="lazy" alt="证据" />
+  <div v-if="!failed && url" class="ev-thumb" :style="{ width: width + 'px', height: height + 'px' }" @click.stop="open">
+    <img :src="url" loading="lazy" alt="证据" @error="failed = true" />
     <span class="ev-tip">点击查看</span>
   </div>
   <div v-else class="ev-thumb ev-empty" :style="{ width: width + 'px', height: height + 'px' }">
-    <span>无图</span>
+    <span>{{ url ? '暂无图片' : '无图' }}</span>
   </div>
 </template>
 
@@ -12,8 +12,9 @@
 /**
  * EvidenceThumb.vue — 证据缩略图（doc/05.1 §12.2 EvidenceThumb）
  * 悬停放大 1.05 + "点击查看"提示；点击打开全局 Lightbox 大图（不弹窗跳页）。
+ * 图片加载失败(端侧路径登记未转换/404)时兜底为"暂无图片"占位，不显示破图。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { api } from '../api'
 import { useLightbox } from './lightbox'
 
@@ -23,11 +24,15 @@ const props = defineProps({
   width: { type: Number, default: 96 },
   height: { type: Number, default: 72 },
 })
+const failed = ref(false)
 const url = computed(() =>
   props.item?.id != null ? api.evidenceImageUrl(props.item.id, true) : ''
 )
+// 换图重置失败态
+watch(url, () => { failed.value = false })
 
 function open() {
+  if (failed.value) return
   // 单图打开也走 Lightbox，支持 ←/→ 切换
   useLightbox().open([props.item], 0)
 }

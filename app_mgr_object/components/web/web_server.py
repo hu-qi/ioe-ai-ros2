@@ -229,7 +229,13 @@ class WebServer:
             """SPA 入口与 history 路由 fallback: 全部回落 index.html，由前端路由接管。"""
             # 安全: full_path 不参与文件系统拼接，统一返回 SPA 入口
             if ui_index.exists():
-                return FileResponse(ui_index, media_type="text/html")
+                # no-cache: index.html 必须每次协商缓存，避免浏览器缓存旧入口
+                # 引用已删除的 hash chunk，导致懒加载 404 / 路由点击无反应
+                return FileResponse(
+                    ui_index,
+                    media_type="text/html",
+                    headers={"Cache-Control": "no-cache, must-revalidate"},
+                )
             return HTMLResponse("<h1>新版界面未构建</h1><p>请先执行 apps/web-ui 构建</p>", status_code=404)
         self.logger.info(f"P7: Vue3 SPA 已挂载 /ui (dist={self.ui_dist_dir})")
 
