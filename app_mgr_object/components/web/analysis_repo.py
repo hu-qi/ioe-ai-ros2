@@ -532,6 +532,47 @@ class AnalysisRepo:
         finally:
             conn.close()
 
+    def get_step_sequence_error_rate(self, step_idx: int, filters: dict) -> float:
+        """
+        步骤顺序错误率：基于子步骤 sequence_error 标记
+        （由 ScoringEngine.detect_sequence_errors 评分时回写，与本口径同源）
+        COUNT(report WHERE substep.idx=step_idx AND sequence_error=1) / COUNT(report)
+        """
+        where_clause, params = self._build_report_filters(filters)
+
+        conn = self._connect()
+        try:
+            report_ids_row = conn.execute(
+                f"""SELECT DISTINCT rs.report_id
+                    FROM report_steps rs
+                    INNER JOIN reports r ON r.report_id = rs.report_id
+                    {where_clause}
+                    AND rs.idx = ?""",
+                params + [step_idx]
+            ).fetchall()
+
+            if not report_ids_row:
+                return 0.0
+
+            report_ids = [r["report_id"] for r in report_ids_row]
+            total = len(report_ids)
+            if total == 0:
+                return 0.0
+
+            placeholders = ",".join("?" * len(report_ids))
+            seq_row = conn.execute(
+                f"""SELECT COUNT(DISTINCT report_id) AS seq_err_count
+                    FROM report_substeps
+                    WHERE report_id IN ({placeholders})
+                      AND idx = ?
+                      AND sequence_error = 1""",
+                report_ids + [step_idx]
+            ).fetchone()
+            seq_err_count = seq_row["seq_err_count"] if seq_row else 0
+            return round(seq_err_count / total, 4)
+        finally:
+            conn.close()
+
     def get_step_interval_stats(self, step_idx: int, filters: dict) -> dict:
         """步骤间隔统计: 与下一步的平均间隔均值(ms)。
         数据源: report_steps.interval_ms（doc/58 v1.1, 本步 start - 上步 end）。"""

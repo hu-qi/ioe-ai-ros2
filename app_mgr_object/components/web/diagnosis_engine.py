@@ -181,10 +181,9 @@ class DiagnosisEngine:
                                 process_name: str = '') -> List[dict]:
         """顺序混乱：某步骤顺序错误率 > threshold
 
-        顺序错误率简化算法（doc/71 §6.2）：
-        基于 report_events 表的 INTERRUPT（kind=2）事件统计，
-        顺序错误率 = 含 INTERRUPT 事件的报告数 / 总报告数。
-        本期为简化算法，后续可细化。
+        顺序错误率（与 ScoringEngine.detect_sequence_errors 同源）：
+        基于评分回写的 report_substeps.sequence_error 标记统计，
+        顺序错误率 = 含顺序错误子步骤的报告数 / 总报告数。
         """
         filters = self._build_filters(cls, date_range, process_name)
 
@@ -201,17 +200,17 @@ class DiagnosisEngine:
             if not self._apply_substep_filter(rule, idx):
                 continue
 
-            chaos_rate = self._repo.get_step_timeout_rate(idx, filters)
-            if chaos_rate > rule.threshold:
+            seq_err_rate = self._repo.get_step_sequence_error_rate(idx, filters)
+            if seq_err_rate > rule.threshold:
                 results.append({
                     "diagnosis_type": "sequence_chaos",
                     "scope": "class" if cls else "all",
                     "target_id": f"step_{idx}",
                     "process_name": process_name,
-                    "metric_value": round(chaos_rate, 4),
+                    "metric_value": round(seq_err_rate, 4),
                     "threshold_value": rule.threshold,
                     "advice_text": rule.suggestion or self.ADVICE_SEQUENCE_CHAOS,
-                    "metric_label": f"步骤{idx}超时率 {chaos_rate:.1%} > 阈值 {rule.threshold:.0%}"
+                    "metric_label": f"步骤{idx}顺序错误率 {seq_err_rate:.1%} > 阈值 {rule.threshold:.0%}"
                 })
 
         return results

@@ -7,7 +7,7 @@ test_diagnosis_engine.py — 诊断规则引擎单元测试
 测试覆盖 4 类诊断阈值规则：
   1. 全班性瓶颈（bottleneck）：全班平均用时 > SOP标准×1.5
   2. 顽固性错误（persistent_error）：遗漏率 > 30%
-  3. 顺序混乱（sequence_chaos）：超时率 > 20%
+  3. 顺序混乱（sequence_chaos）：顺序错误率 > 20%（与 ScoringEngine.sequence_error 同源）
   4. 学员退步预警（student_regression）：最近3次平均分 < 前5次×0.85
 """
 
@@ -214,18 +214,18 @@ class TestPersistentError:
 
 class TestSequenceChaos:
     def test_sequence_chaos_triggered(self, engine_and_db):
-        """超时率 > 20% → 触发"""
+        """顺序错误率 > 20% → 触发"""
         db_path, repo, engine = engine_and_db
         conn = sqlite3.connect(db_path)
-        # 5 份报告，步骤1 全部超时
+        # 5 份报告，步骤1 全部顺序错误（sequence_error=1）
         for i in range(5):
             _insert_report(conn, f"R{i}")
             _insert_step(conn, f"R{i}", 1, "步骤1")
             conn.execute(
                 """INSERT OR REPLACE INTO report_substeps
                    (report_id, idx, name, state, start_ms, end_ms,
-                    duration_ms, count, total_duration_ms, timeout)
-                   VALUES (?, 1, '子1', 2, 0, 0, 0, 1, 0, 1)""",
+                    duration_ms, count, total_duration_ms, timeout, sequence_error)
+                   VALUES (?, 1, '子1', 2, 0, 0, 0, 1, 0, 0, 1)""",
                 (f"R{i}",)
             )
         conn.commit()
@@ -238,20 +238,20 @@ class TestSequenceChaos:
         assert "依赖关系" in results[0]["advice_text"]
 
     def test_sequence_chaos_not_triggered(self, engine_and_db):
-        """超时率 <= 20% → 不触发"""
+        """顺序错误率 <= 20% → 不触发"""
         db_path, repo, engine = engine_and_db
         conn = sqlite3.connect(db_path)
-        # 10 份报告，步骤1 仅 1 份超时 → 10% < 20%
+        # 10 份报告，步骤1 仅 1 份顺序错误 → 10% < 20%
         for i in range(10):
             _insert_report(conn, f"R{i}")
             _insert_step(conn, f"R{i}", 1, "步骤1")
-            timeout = 1 if i == 0 else 0
+            seq_err = 1 if i == 0 else 0
             conn.execute(
                 """INSERT OR REPLACE INTO report_substeps
                    (report_id, idx, name, state, start_ms, end_ms,
-                    duration_ms, count, total_duration_ms, timeout)
-                   VALUES (?, 1, '子1', 2, 0, 0, 0, 1, 0, ?)""",
-                (f"R{i}", timeout)
+                    duration_ms, count, total_duration_ms, timeout, sequence_error)
+                   VALUES (?, 1, '子1', 2, 0, 0, 0, 1, 0, 0, ?)""",
+                (f"R{i}", seq_err)
             )
         conn.commit()
         conn.close()
@@ -324,15 +324,15 @@ class TestDiagnoseAll:
         """diagnose_all 组合多类诊断结果"""
         db_path, repo, engine = engine_and_db
         conn = sqlite3.connect(db_path)
-        # 3 份报告，步骤1 超时且遗漏
+        # 3 份报告，步骤1 超时且遗漏且顺序错误
         for i in range(3):
             _insert_report(conn, f"R{i}")
             _insert_step(conn, f"R{i}", 1, "步骤1", state=0, duration_ms=13000)
             conn.execute(
                 """INSERT OR REPLACE INTO report_substeps
                    (report_id, idx, name, state, start_ms, end_ms,
-                    duration_ms, count, total_duration_ms, timeout)
-                   VALUES (?, 1, '子1', 2, 0, 0, 0, 1, 0, 1)""",
+                    duration_ms, count, total_duration_ms, timeout, sequence_error)
+                   VALUES (?, 1, '子1', 2, 0, 0, 0, 1, 0, 1, 1)""",
                 (f"R{i}",)
             )
         conn.commit()
