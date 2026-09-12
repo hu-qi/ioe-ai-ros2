@@ -104,7 +104,7 @@ function openReport(r) {
 .dg-fact { background: var(--c-bg); border-radius: 6px; padding: 8px 10px; }
 .df-k { font-size: var(--fs-aux); color: var(--c-text-weak); }
 .df-v { font-size: var(--fs-h3); font-weight: 600; margin-top: 2px; }
-.dg-section { font-size: var(--fs-h3); font-weight: 600; margin: 16px 0 8px; padding-left: 8px; border-left: 3px solid var(--c-primary); }
+.dg-section { font-size: var(--fs-h3); font-weight: 600; letter-spacing: -0.01em; margin: 16px 0 8px; color: var(--c-text-main); }
 .dg-evidence { display: flex; flex-wrap: wrap; gap: 8px; }
 .dg-reports { display: flex; flex-direction: column; }
 .dg-report-row { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--c-divider); cursor: pointer; border-radius: 4px; }

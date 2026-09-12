@@ -163,11 +163,11 @@ function goReport(id) {
 
 .app-shell { min-height: 100%; display: flex; flex-direction: column; }
 
-/* ===== 顶部导航 ===== */
+/* ===== 顶部导航(bg-white + border gray-200,企业导航骨架) ===== */
 .top-nav {
   height: var(--nav-h);
-  background: linear-gradient(90deg, #1E44B8 0%, var(--c-primary) 55%, #3A6BEE 100%);
-  color: #fff;
+  background: var(--c-card);
+  color: var(--c-text-main);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -175,39 +175,33 @@ function goReport(id) {
   position: sticky;
   top: 0;
   z-index: 100;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .08) inset, 0 2px 8px rgba(16, 24, 40, .12);
+  border-bottom: 1px solid var(--c-divider);
 }
 .nav-left { display: flex; align-items: center; gap: 32px; }
-.nav-logo { font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; letter-spacing: .02em; }
-.logo-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c-accent); display: inline-block;
-  box-shadow: 0 0 6px rgba(245, 166, 35, .55); }
+.nav-logo { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; cursor: pointer; display: flex; align-items: center; gap: 8px; color: var(--c-text-main); }
+.logo-dot { width: 10px; height: 10px; border-radius: 3px; background: var(--c-primary); display: inline-block; }
 .nav-menu { display: flex; gap: 6px; }
 .nav-item {
   position: relative;
   padding: 6px 16px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: var(--fs-body);
-  color: rgba(255, 255, 255, 0.82);
+  font-weight: 500;
+  color: var(--c-text-sub);
   transition: background var(--t-fast), color var(--t-fast);
 }
-.nav-item::after {
-  content: ''; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px;
-  border-radius: 1px; background: var(--c-accent);
-  transform: scaleX(0); transform-origin: center; transition: transform var(--t-med);
-}
-.nav-item:hover { background: rgba(255, 255, 255, 0.10); color: #fff; }
-.nav-item.active { background: rgba(255, 255, 255, 0.16); color: #fff; font-weight: 600; }
-.nav-item.active::after { transform: scaleX(1); }
+.nav-item:hover { background: var(--c-bg-deep); color: var(--c-text-main); }
+.nav-item.active { background: var(--c-primary-light); color: var(--c-primary); font-weight: 600; }
 
 .nav-right { display: flex; align-items: center; gap: 16px; }
 .proc-select { width: 130px; }
-.proc-select .el-select__wrapper { background: rgba(255,255,255,.15); box-shadow: none; color: #fff; }
-.proc-select .el-select__placeholder { color: rgba(255,255,255,.75); }
-.proc-select .el-select__selected-item { color: #fff; }
-.proc-select .el-select__caret { color: rgba(255,255,255,.8); }
-.nav-icon { cursor: pointer; font-size: 18px; display: flex; color: rgba(255,255,255,.9); }
-.nav-icon:hover { color: #fff; }
+.proc-select .el-select__wrapper { background: var(--c-bg); box-shadow: 0 0 0 1px var(--c-divider) inset; min-height: 32px; }
+.proc-select .el-select__placeholder { color: var(--c-text-weak); }
+.proc-select .el-select__selected-item { color: var(--c-text-main); }
+.proc-select .el-select__caret { color: var(--c-text-weak); }
+.nav-icon { cursor: pointer; font-size: 18px; display: flex; color: var(--c-text-sub); padding: 6px; border-radius: var(--radius-sm); transition: background var(--t-fast), color var(--t-fast); }
+.nav-icon:hover { background: var(--c-bg-deep); color: var(--c-primary); }
 
 /* ===== 内容区 ===== */
 .app-content { flex: 1; }
@@ -221,7 +215,7 @@ function goReport(id) {
 
 /* ===== 全局搜索（Ctrl+F） ===== */
 .gs-loading { padding: 8px 0; }
-.gs-section { font-size: var(--fs-h3); font-weight: 600; color: var(--c-text-sub); margin: 10px 0 4px; padding-left: 8px; border-left: 3px solid var(--c-primary); }
+.gs-section { font-size: var(--fs-h3); font-weight: 600; letter-spacing: -0.01em; color: var(--c-text-main); margin: 10px 0 4px; }
 .gs-row { display: flex; align-items: center; gap: 12px; padding: 8px 6px; border-radius: var(--radius-sm, 6px); cursor: pointer; }
 .gs-row:hover { background: var(--c-bg, #F5F7FA); }
 .gs-row b { font-size: var(--fs-body); }

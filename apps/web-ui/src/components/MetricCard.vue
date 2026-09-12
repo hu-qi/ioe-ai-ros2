@@ -1,8 +1,7 @@
 <template>
   <div class="card metric-card hoverable" :class="{ selected }" @click="$emit('click')">
-    <div class="metric-bar" :style="{ background: color }"></div>
     <div class="metric-body">
-      <div class="metric-label">{{ label }}</div>
+      <div class="metric-label"><span class="metric-dot" :style="{ background: color }"></span>{{ label }}</div>
       <div class="metric-num" :style="{ color: valueColor || color }">
         {{ display }}<span v-if="suffix" class="metric-suffix">{{ suffix }}</span>
       </div>
@@ -46,17 +45,17 @@ const display = computed(() => {
 </script>
 
 <style scoped>
-.metric-card { position: relative; display: flex; padding: 0; overflow: hidden; min-height: 128px; }
-.metric-bar { width: 4px; flex: none; }
-.metric-body { padding: 16px 20px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
-.metric-label { font-size: var(--fs-h3); color: var(--c-text-sub); transition: color var(--t-fast); }
+/* Corporate Clean:去掉单侧粗色条,改为标题前小圆点;卡片本身由 .card 提供 border+shadow-sm */
+.metric-card { display: flex; min-height: 128px; }
+.metric-body { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.metric-label { font-size: var(--fs-h3); color: var(--c-text-sub); font-weight: 500; display: flex; align-items: center; gap: 6px; transition: color var(--t-fast); }
+.metric-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .metric-card:hover .metric-label { color: var(--c-text-main); }
-.metric-num { font-size: var(--fs-num); font-weight: 700; line-height: var(--lh-num); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
-.metric-suffix { font-size: 16px; font-weight: 600; margin-left: 2px; }
+.metric-num { font-size: var(--fs-num); font-weight: 600; letter-spacing: -0.01em; line-height: var(--lh-num); font-variant-numeric: tabular-nums; }
+.metric-suffix { font-size: 16px; font-weight: 500; margin-left: 2px; }
 .metric-aux { font-size: var(--fs-aux); color: var(--c-text-weak); display: flex; gap: 8px; margin-top: auto; }
 .metric-aux .up { color: var(--c-success); }
 .metric-aux .down { color: var(--c-danger); }
-/* 选中态：描边 + 左色条加宽（高信号状态变化，动效克制） */
+/* 选中态:焦点环(含 offset)分离焦点指示,符合 WCAG */
 .metric-card.selected { box-shadow: var(--ring-focus), var(--shadow-card); border-color: transparent; }
-.metric-card.selected .metric-bar { width: 6px; }
 </style>

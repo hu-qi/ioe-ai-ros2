@@ -153,7 +153,7 @@ function goFull() {
 .g-danger { color: var(--c-danger); }
 .rp-meta { margin-left: auto; font-size: var(--fs-aux); color: var(--c-text-weak); display: flex; flex-direction: column; gap: 2px; text-align: right; }
 .rp-meta b { color: var(--c-text-main); }
-.dw-section { font-size: var(--fs-h3); font-weight: 600; margin: 14px 0 8px; padding-left: 8px; border-left: 3px solid var(--c-primary); }
+.dw-section { font-size: var(--fs-h3); font-weight: 600; letter-spacing: -0.01em; margin: 14px 0 8px; line-height: var(--lh-h3); color: var(--c-text-main); }
 .rp-abnormal { display: flex; flex-wrap: wrap; gap: 8px; }
 .rp-ab-item { font-size: var(--fs-aux); border-radius: 4px; padding: 3px 10px; }
 .a-timeout { background: rgba(230, 126, 34, .12); color: var(--c-warning); }

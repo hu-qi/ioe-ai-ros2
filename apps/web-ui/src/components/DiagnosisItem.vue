@@ -60,7 +60,7 @@ const fmtMetric = computed(() => {
 </script>
 
 <style scoped>
-.diag-item { padding: 12px 16px; border-left: 4px solid var(--c-warning); transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+.diag-item { padding: 12px 16px; transition: box-shadow var(--t-fast); }
 .diag-item:hover { box-shadow: var(--shadow-hover); }
 .diag-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .diag-warn { color: var(--c-warning); font-weight: 700; }
