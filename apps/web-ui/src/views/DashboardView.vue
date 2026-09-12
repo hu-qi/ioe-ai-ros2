@@ -283,7 +283,7 @@ function goReportsDiagnosis() { go('/reports') }
 
 <style scoped>
 /* ===== 第一行 40/60 ===== */
-.row-top { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; align-items: start; }
+.row-top { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; align-items: stretch; }
 .row-top + .row-mid { margin-top: 16px; }
 
 /* ① 实时训练动态 */
@@ -313,8 +313,8 @@ function goReportsDiagnosis() { go('/reports') }
 .rt-ev-icon { width: 14px; text-align: center; }
 .rt-ev-text { color: var(--c-text-sub); }
 
-/* ② 概览（doc/04.1 §3.1：区域② 高 160px；用户反馈：4 卡 2×2 网格） */
-.ov-panel { display: flex; height: 160px; }
+/* ② 概览（doc/04.1 §3.1：区域② 高 160px；用户反馈：4 卡 2×2 网格，等高对齐左栏） */
+.ov-panel { display: flex; min-height: 160px; height: 100%; }
 .ov-grid { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 12px; }
 .ov-grid .metric-card { min-height: 0; height: 100%; }
 .ov-grid .metric-card .metric-body { padding: 10px 18px; gap: 2px; }
