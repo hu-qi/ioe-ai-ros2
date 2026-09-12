@@ -333,6 +333,7 @@ function exportDiagnosis() {
 // ==================== Tab3 教学闭环 ====================
 const actions = ref([])
 const taLoading = ref(false)
+const ta = reactive({ cls: '' })   // 教学闭环班级筛选（模板 v-model 绑定）
 const formVisible = ref(false)
 const form = reactive({ class_name: '', process_name: '', target_substep: '', description: '' })
 const classOptions = ref(['一班', '二班', '三班'])
@@ -348,7 +349,7 @@ async function loadActions() {
     taLoading.value = false
   }
 }
-const taClsParam = computed(() => '')
+const taClsParam = computed(() => ta.cls || '')
 
 function statCount(kind) {
   // 已验证状态存前端会话内（后端 action 表无 trend 字段，验证时临时获取）

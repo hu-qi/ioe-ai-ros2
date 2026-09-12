@@ -166,6 +166,7 @@ function goReport(id) {
 /* ===== 顶部导航(bg-white + border gray-200,企业导航骨架) ===== */
 .top-nav {
   height: var(--nav-h);
+  box-sizing: border-box;
   background: var(--c-card);
   color: var(--c-text-main);
   display: flex;

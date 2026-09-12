@@ -33,10 +33,12 @@ export const useWorkspaceStore = defineStore('workspace', {
     drawerContext: null, // {items: [payload...], index}
   }),
   getters: {
-    /** analysis 域通用过滤参数（date_start/date_end/process_name） */
+    /** analysis 域通用过滤参数（date_start/date_end/process_name；空工序不传参=全部） */
     analysisParams(state) {
       const r = rangeToMs(state.rangeDays)
-      return { date_start: r.date_start, date_end: r.date_end, process_name: state.process }
+      const p = { date_start: r.date_start, date_end: r.date_end }
+      if (state.process) p.process_name = state.process
+      return p
     },
     /** Drawer 是否可切换上/下一条（05.1 §10.4） */
     hasDrawerPrev(state) { return !!state.drawerContext && state.drawerContext.index > 0 },

@@ -128,6 +128,11 @@ body {
 }
 .el-table .el-table__cell { padding: 9px 0; }
 
+/* ===== 工具条(搜索/筛选/操作按钮排布,4视图共用) ===== */
+.filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.filter-bar .el-input, .filter-bar .el-select { flex: none; }
+.filter-bar > .el-button:first-child { margin-left: auto; }
+
 /* 数字右对齐列 */
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 

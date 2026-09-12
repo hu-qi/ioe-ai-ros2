@@ -6,6 +6,8 @@ import { reactive } from 'vue'
 
 const state = reactive({
   bindFn: null,
+  list: [],   // 当前展示的证据列表([{id, sub, ts, ...}])
+  index: 0,   // 当前下标
 })
 
 export function useLightbox() {
