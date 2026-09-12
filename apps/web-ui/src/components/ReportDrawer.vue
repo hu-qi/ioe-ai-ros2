@@ -71,7 +71,11 @@
     </template>
     <el-empty v-else description="报告不存在" />
     <template #footer>
-      <el-button type="primary" @click="goFull">查看完整报告</el-button>
+      <div class="rp-footer">
+        <el-button size="small" :disabled="!ws.hasDrawerPrev" @click="ws.drawerStep(-1)">← 上一条</el-button>
+        <el-button size="small" :disabled="!ws.hasDrawerNext" @click="ws.drawerStep(1)">下一条 →</el-button>
+        <el-button type="primary" class="rp-footer-main" @click="goFull">查看完整报告</el-button>
+      </div>
     </template>
   </el-drawer>
 </template>
@@ -157,4 +161,6 @@ function goFull() {
 .rp-timeline { display: flex; flex-direction: column; gap: 4px; }
 .rp-ev { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .rp-ev-icon { width: 16px; text-align: center; font-size: 12px; }
+.rp-footer { display: flex; align-items: center; gap: 8px; }
+.rp-footer-main { margin-left: auto; }
 </style>

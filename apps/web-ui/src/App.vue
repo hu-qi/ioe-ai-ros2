@@ -42,13 +42,40 @@
     <ReportDrawer />
     <DiagnosisDrawer />
     <EvidenceLightbox ref="lightboxRef" />
+
+    <!-- 全局搜索（doc/05.1 §10.5：Ctrl+F） -->
+    <el-dialog v-model="searchVisible" title="全局搜索（学员 / 报告）" width="520px" @closed="searchKeyword = ''">
+      <el-input v-model="searchKeyword" placeholder="输入姓名 / 学号 / 报告号，回车搜索" clearable autofocus @keyup.enter="doSearch">
+        <template #prefix><el-icon><Search /></el-icon></template>
+      </el-input>
+      <div v-if="searching" class="gs-loading"><el-skeleton :rows="2" animated /></div>
+      <template v-else-if="searchDone">
+        <template v-if="searchResults.students.length">
+          <div class="gs-section">学员</div>
+          <div v-for="s in searchResults.students" :key="s.id" class="gs-row" @click="goStudent(s.id)">
+            <b>{{ s.name }}</b><span class="gs-meta">{{ s.id }} · {{ s.cls || '-' }}</span>
+            <span class="link">查看</span>
+          </div>
+        </template>
+        <template v-if="searchResults.reports.length">
+          <div class="gs-section">报告</div>
+          <div v-for="r in searchResults.reports" :key="r.report_id" class="gs-row" @click="goReport(r.report_id)">
+            <span class="ts">{{ r.report_id }}</span><span class="gs-meta">{{ r.student_name || r.student_id }} · {{ r.process_name }}</span>
+            <span class="link">查看</span>
+          </div>
+        </template>
+        <el-empty v-if="!searchResults.students.length && !searchResults.reports.length"
+          description="无匹配结果" :image-size="60" />
+      </template>
+    </el-dialog>
   </el-config-provider>
 </template>
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Setting } from '@element-plus/icons-vue'
+import { Setting, Search } from '@element-plus/icons-vue'
+import { ElDialog, ElInput, ElIcon, ElEmpty, ElSkeleton } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useWorkspaceStore, PROCESS_OPTIONS } from './stores/workspace'
 import StudentDrawer from './components/StudentDrawer.vue'
@@ -56,6 +83,7 @@ import ReportDrawer from './components/ReportDrawer.vue'
 import DiagnosisDrawer from './components/DiagnosisDrawer.vue'
 import EvidenceLightbox from './components/EvidenceLightbox.vue'
 import { useLightbox } from './components/lightbox'
+import { api } from './api'
 
 const route = useRoute()
 const router = useRouter()
@@ -69,12 +97,65 @@ const go = (path) => router.push(path)
 const lightboxRef = ref(null)
 useLightbox().bind(lightboxRef)
 
-// ---- Esc 关闭 Drawer（doc/05.1 §10.5 键盘快捷键） ----
+// ---- 键盘：Esc 关 Drawer；Ctrl+F 全局搜索（doc/05.1 §10.5） ----
+const searchVisible = ref(false)
+const searchKeyword = ref('')
+const searching = ref(false)
+const searchDone = ref(false)
+const searchResults = ref({ students: [], reports: [] })
+
 function onKeydown(e) {
-  if (e.key === 'Escape' && ws.drawer) ws.closeDrawer()
+  if (e.key === 'Escape' && ws.drawer) { ws.closeDrawer(); return }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
+    e.preventDefault()
+    searchVisible.value = true
+  }
 }
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+/** 浏览器后退优先关闭 Drawer，而不是离开工作台（doc/05.1 §10.3） */
+function onPopstate() {
+  if (ws.drawer) ws.closeDrawer()
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('popstate', onPopstate)
+  // 筛选条件从 URL Query 恢复（doc/05.1 §10.4 状态保持）
+  ws.restoreFromQuery()
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('popstate', onPopstate)
+})
+
+// ---- 全局搜索：学员 + 报告并行检索 ----
+async function doSearch() {
+  const kw = searchKeyword.value.trim()
+  if (!kw) return
+  searching.value = true
+  searchDone.value = false
+  try {
+    const [stu, rep] = await Promise.all([
+      api.listStudents({ keyword: kw, page: 1, page_size: 10 }).catch(() => null),
+      api.listReports({ student_id: kw, page: 1, page_size: 10 }).catch(() => null),
+    ])
+    searchResults.value = {
+      students: stu?.list || [],
+      reports: rep?.list || [],
+    }
+    searchDone.value = true
+  } finally {
+    searching.value = false
+  }
+}
+function goStudent(id) {
+  searchVisible.value = false
+  router.push(`/students/${encodeURIComponent(id)}`)
+}
+function goReport(id) {
+  searchVisible.value = false
+  router.push(`/reports/${encodeURIComponent(id)}`)
+}
 </script>
 
 <style>
@@ -137,4 +218,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .ev-timeout { color: var(--c-warning); }
 .ev-interrupt { color: var(--c-danger); }
 .ev-finish { color: var(--c-text-sub); }
+
+/* ===== 全局搜索（Ctrl+F） ===== */
+.gs-loading { padding: 8px 0; }
+.gs-section { font-size: var(--fs-h3); font-weight: 600; color: var(--c-text-sub); margin: 10px 0 4px; padding-left: 8px; border-left: 3px solid var(--c-primary); }
+.gs-row { display: flex; align-items: center; gap: 12px; padding: 8px 6px; border-radius: var(--radius-sm, 6px); cursor: pointer; }
+.gs-row:hover { background: var(--c-bg, #F5F7FA); }
+.gs-row b { font-size: var(--fs-body); }
+.gs-meta { flex: 1; color: var(--c-text-weak); font-size: var(--fs-aux); }
 </style>

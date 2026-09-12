@@ -29,6 +29,8 @@ export const useWorkspaceStore = defineStore('workspace', {
     // Drawer 状态（同一时刻至多一个）
     drawer: '',         // ''/student/report/diagnosis
     drawerPayload: null,
+    // Drawer 对象切换上下文（05.1 §10.4：连续查看支持上一条/下一条）
+    drawerContext: null, // {items: [payload...], index}
   }),
   getters: {
     /** analysis 域通用过滤参数（date_start/date_end/process_name） */
@@ -36,12 +38,61 @@ export const useWorkspaceStore = defineStore('workspace', {
       const r = rangeToMs(state.rangeDays)
       return { date_start: r.date_start, date_end: r.date_end, process_name: state.process }
     },
+    /** Drawer 是否可切换上/下一条（05.1 §10.4） */
+    hasDrawerPrev(state) { return !!state.drawerContext && state.drawerContext.index > 0 },
+    hasDrawerNext(state) {
+      return !!state.drawerContext && state.drawerContext.index < state.drawerContext.items.length - 1
+    },
   },
   actions: {
-    setProcess(p) { this.process = p || '' },
-    setRange(days) { this.rangeDays = days },
+    setProcess(p) {
+      this.process = p || ''
+      this.syncQuery()
+    },
+    setRange(days) {
+      this.rangeDays = days
+      this.syncQuery()
+    },
     toggleMetric(key) { this.activeMetric = this.activeMetric === key ? '' : key },
-    openDrawer(name, payload = null) { this.drawer = name; this.drawerPayload = payload },
-    closeDrawer() { this.drawer = ''; this.drawerPayload = null },
+    /** 打开 Drawer；context = {items:[payload...], index} 时支持上一条/下一条切换 */
+    openDrawer(name, payload = null, context = null) {
+      this.drawer = name
+      this.drawerPayload = payload
+      this.drawerContext = context
+    },
+    closeDrawer() {
+      this.drawer = ''
+      this.drawerPayload = null
+      this.drawerContext = null
+    },
+    /** Drawer 内切换上(-1)/下(+1)一个对象（不关抽屉、局部刷新） */
+    drawerStep(delta) {
+      const ctx = this.drawerContext
+      if (!ctx || !ctx.items?.length) return
+      const next = Math.min(Math.max(0, ctx.index + delta), ctx.items.length - 1)
+      if (next === ctx.index) return
+      ctx.index = next
+      this.drawerPayload = ctx.items[next]
+    },
+    get hasDrawerPrev() { return !!this.drawerContext && this.drawerContext.index > 0 },
+    get hasDrawerNext() {
+      return !!this.drawerContext && this.drawerContext.index < this.drawerContext.items.length - 1
+    },
+    /** 筛选条件写入 URL Query（doc/05.1 §10.4 状态保持：刷新后可恢复主要筛选） */
+    syncQuery() {
+      const q = new URLSearchParams(window.location.search)
+      q.set('process', this.process || '')
+      q.set('range', String(this.rangeDays))
+      const s = q.toString() ? `?${q.toString()}` : window.location.pathname
+      window.history.replaceState(window.history.state, '', s)
+    },
+    /** 从 URL Query 恢复（App 挂载时调用一次） */
+    restoreFromQuery() {
+      const q = new URLSearchParams(window.location.search)
+      const p = q.get('process')
+      if (p && PROCESS_OPTIONS.includes(p)) this.process = p
+      const r = parseInt(q.get('range'), 10)
+      if (RANGE_OPTIONS.some((o) => o.days === r)) this.rangeDays = r
+    },
   },
 })

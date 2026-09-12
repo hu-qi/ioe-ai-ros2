@@ -54,7 +54,11 @@
       </template>
       <el-empty v-else description="学员数据不可用" />
       <template #footer>
-        <el-button type="primary" plain @click="goDetail">查看长期分析</el-button>
+        <div class="dw-footer">
+          <el-button size="small" :disabled="!ws.hasDrawerPrev" @click="ws.drawerStep(-1)">← 上一条</el-button>
+          <el-button size="small" :disabled="!ws.hasDrawerNext" @click="ws.drawerStep(1)">下一条 →</el-button>
+          <el-button type="primary" plain class="dw-footer-main" @click="goDetail">查看长期分析</el-button>
+        </div>
       </template>
     </el-drawer>
   </template>
@@ -146,4 +150,6 @@ function goDetail() {
 .dw-report-row { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--c-divider); cursor: pointer; border-radius: 4px; }
 .dw-report-row:hover { background: var(--c-bg); }
 .dw-proc { flex: 1; }
+.dw-footer { display: flex; align-items: center; gap: 8px; }
+.dw-footer-main { margin-left: auto; }
 </style>

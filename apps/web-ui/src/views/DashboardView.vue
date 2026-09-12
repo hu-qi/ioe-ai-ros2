@@ -231,8 +231,12 @@ function onWsMessage(msg) {
   if (msg.type === 'realtime_progress' && msg.data) {
     const { device_id, progress, events } = msg.data
     if (device_id && events?.length) {
+      // 引擎单调 ts → 墙钟近似：以本批到达时刻为锚，批内最大 ts 对齐 now（05.1 §6.1 事件流时间戳）
+      const nowMs = Date.now()
+      const maxTs = Math.max(...events.map((e) => e.ts || 0))
+      const stamped = events.map((e) => ({ ...e, _wall: nowMs - (maxTs - (e.ts || 0)) }))
       const list = eventsByDevice[device_id] || []
-      eventsByDevice[device_id] = [...events, ...list].slice(0, 10)
+      eventsByDevice[device_id] = [...stamped, ...list].slice(0, 10)
     }
     loadRealtime()
   }
@@ -258,10 +262,7 @@ function isOvertime(d) {
 }
 function eventsOf(deviceId) { return eventsByDevice[deviceId] || [] }
 function evClock(d, ev) {
-  // 引擎单调 ts → 墙钟近似（ts_upload - elapsed 基准不可得时用相对刻度）
-  const dev = rt.devices.find((x) => x.device_id === d.device_id)
-  void dev
-  return '--:--:--'
+  return ev?._wall ? fmtClock(ev._wall) : '--:--:--'
 }
 function kindStyle(kind) {
   return EVENT_KIND_STYLE[kind] || { icon: '·', cls: 'ev-finish', label: '事件' }
@@ -282,7 +283,7 @@ function goReportsDiagnosis() { go('/reports') }
 
 <style scoped>
 /* ===== 第一行 40/60 ===== */
-.row-top { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; }
+.row-top { display: grid; grid-template-columns: 2fr 3fr; gap: 16px; align-items: start; }
 .row-top + .row-mid { margin-top: 16px; }
 
 /* ① 实时训练动态 */
@@ -312,9 +313,12 @@ function goReportsDiagnosis() { go('/reports') }
 .rt-ev-icon { width: 14px; text-align: center; }
 .rt-ev-text { color: var(--c-text-sub); }
 
-/* ② 概览 */
-.ov-panel { display: flex; }
-.ov-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+/* ② 概览（doc/04.1 §3.1：区域② 高 160px；用户反馈：4 卡 2×2 网格） */
+.ov-panel { display: flex; height: 160px; }
+.ov-grid { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 12px; }
+.ov-grid .metric-card { min-height: 0; height: 100%; }
+.ov-grid .metric-card .metric-body { padding: 10px 18px; gap: 2px; }
+.ov-grid .metric-card .metric-num { font-size: 24px; line-height: 32px; }
 
 /* ===== 第二行 60/40 ===== */
 .row-mid { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; }
