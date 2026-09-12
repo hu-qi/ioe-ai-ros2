@@ -19,7 +19,8 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response, RedirectResponse
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -124,6 +125,9 @@ class WebServer:
             openapi_url="/api/openapi.json" if config.get('debug', True) else None
         )
         
+        # GZip 压缩响应（doc/02 §1.2/§6.2 前端轻量化：首屏 gzip 后 <500KB）
+        self.app.add_middleware(GZipMiddleware, minimum_size=1024)
+
         # 添加中间件处理.map文件
         @self.app.middleware("http")
         async def ignore_map_files_middleware(request: Request, call_next):
@@ -136,6 +140,9 @@ class WebServer:
         # WebSocket连接管理器
         self.manager = ConnectionManager()
         self._event_loop = None
+        # 挂到节点上，供插件（如教学看板实时增量推送）获取广播器
+        if self.node is not None:
+            self.node.connection_manager = self.manager
         
         # 模板和静态文件
         self.templates_dir = Path(__file__).parent / "templates"
@@ -156,7 +163,7 @@ class WebServer:
         # 挂载静态文件
         if self.static_dir.exists():
             self.app.mount("/static", StaticFiles(directory=self.static_dir), name="static")
-        
+
         # 设置模板
         if self.templates_dir.exists():
             self.templates = Jinja2Templates(directory=self.templates_dir)
@@ -164,31 +171,68 @@ class WebServer:
             self.logger = self.logger
             self.logger.warning(f"模板目录不存在: {self.templates_dir}")
             self.templates = None
-        
+
         # 启动时间
         self._lock = threading.RLock()  # 添加锁
         self._operation_logs = []       # 添加操作日志列表
         self._start_time = time.time()  # 确保启动时间已设置
-        
+
         # 设置路由
         self._setup_routes()
-        
+
         # ===== 业务/配置/任务路由（v3.0） =======
-        self._setup_business_routes()        
-        
+        self._setup_business_routes()
+
         # 服务器线程
         self.server_thread = None
         self.running = False
-        self._uvicorn_server = None       
-        
-        
+        self._uvicorn_server = None
+
+
         # 启动WebSocket广播线程
         self._start_websocket_broadcast()
-        
+
+        # 启动每日维护线程（SQLite 备份 + 备份轮转清理，doc/02 §4.6/§P5）
+        self._start_maintenance_loop()
+
         # 启动告警检查线程（如果有告警回调）
         # if self.alarm_callback:
         #     self._start_alarm_check()
-    
+
+        # ==================== P7 方案A: Vue3 SPA 挂载 /ui ====================
+        # 构建产物目录: app_mgr_object/components/web/ui_dist/
+        # 产物不存在时自动跳过挂载（旧页面不受影响，支持灰度共存）
+        # 放在 __init__ 末尾：确保页面路由注册完成后再挂 /ui（前缀隔离不冲突）
+        self.ui_dist_dir = Path(__file__).parent / "ui_dist"
+        if self.ui_dist_dir.exists():
+            self._mount_ui()
+
+    def _mount_ui(self) -> None:
+        """挂载 Vue3 SPA 到 /ui 路径（P7 方案A: 同端口路径隔离）。
+
+        - /ui/assets/* 静态资源（Vite hash 文件名）；
+        - /ui/{path} 其余路径 SPA fallback 到 index.html（vue-router history 模式必需）；
+        - 前缀隔离，不与 /static 及页面路由冲突。
+        """
+        assets_dir = self.ui_dist_dir / "assets"
+        if assets_dir.exists():
+            self.app.mount(
+                "/ui/assets",
+                StaticFiles(directory=assets_dir),
+                name="ui_assets"
+            )
+        ui_index = self.ui_dist_dir / "index.html"
+
+        @self.app.get("/ui")
+        @self.app.get("/ui/{full_path:path}")
+        async def ui_spa(request: Request, full_path: str = ""):
+            """SPA 入口与 history 路由 fallback: 全部回落 index.html，由前端路由接管。"""
+            # 安全: full_path 不参与文件系统拼接，统一返回 SPA 入口
+            if ui_index.exists():
+                return FileResponse(ui_index, media_type="text/html")
+            return HTMLResponse("<h1>新版界面未构建</h1><p>请先执行 apps/web-ui 构建</p>", status_code=404)
+        self.logger.info(f"P7: Vue3 SPA 已挂载 /ui (dist={self.ui_dist_dir})")
+
     # def _get_logger(self):
     #     """获取日志记录器"""
     #     import logging
@@ -240,14 +284,8 @@ class WebServer:
         @self.app.get("/")
         @self.app.get("/index")
         async def index(request: Request):
-            """首页"""
-            if self.templates:
-                return self.templates.TemplateResponse(
-                    request,
-                    "index.html",
-                    {"config": self.config}
-                )
-            return HTMLResponse("<h1>天眼运维监控系统</h1>")
+            """首页 — 302 到新版 /ui/（SPA 根路径渲染数据大屏）"""
+            return RedirectResponse("/ui/", status_code=302)
 
         @self.app.get("/monitor")
         async def monitor(request: Request):
@@ -302,7 +340,33 @@ class WebServer:
                     {"config": self.config}
                 )
             return HTMLResponse("<h1>报告接收联调</h1>")
-        
+
+        @self.app.get("/diagnosis")
+        async def diagnosis_page(request: Request):
+            """教学诊断中心页 (P2/P4 初版: 规则驱动诊断 + 证据关联展示)"""
+            if self.templates:
+                return self.templates.TemplateResponse(
+                    request,
+                    "diagnosis.html",
+                    {"config": self.config}
+                )
+            return HTMLResponse("<h1>教学诊断中心</h1>")
+
+        # ==================== P7 S5: 旧页 → 新版 /ui 重定向（灰度切换） ====================
+        # 新版稳定后旧模板路由 302 到 /ui 对应页面；旧页保留"返回旧版"入口前的兼容期
+        _LEGACY_REDIRECTS = {
+            "/reports": "/ui/reports",
+            "/diagnosis": "/ui/diagnosis",
+            "/students": "/ui/students",
+            "/dashboard": "/ui/dashboard",
+        }
+
+        @self.app.get("/ui-legacy-redirect/{page}")
+        async def legacy_redirect(page: str):
+            """预留: 显式重定向端点（如需按配置灰度再启用）"""
+            target = _LEGACY_REDIRECTS.get(f"/{page}", "/ui/")
+            return RedirectResponse(target, status_code=302)
+
         # ==================== API路由 - 状态查询 ====================
         @self.app.get("/api/status")
         async def get_status():
@@ -1481,6 +1545,218 @@ class WebServer:
         except Exception as e:
             self.logger.warning(f"教学看板插件加载失败（非致命）: {e}")
 
+        # ==================== 单轮评分插件 (P1, doc/01 §八) ====================
+        try:
+            from ...plugins.scoring_plugin import ScoringPlugin
+            scoring_plugin = ScoringPlugin(
+                node=self.node,
+                config=self.config.get('scoring', {})
+            )
+            if scoring_plugin.configure():
+                scoring_plugin.activate()
+                self._scoring_plugin = scoring_plugin
+                self.logger.info("✅ 单轮评分插件挂载完成（订阅 report.received）")
+            else:
+                self.logger.warning("单轮评分插件配置失败，评分功能不可用")
+        except Exception as e:
+            self.logger.warning(f"单轮评分插件加载失败（非致命）: {e}")
+
+        # ==================== 配置热重载接口 (P2, doc/03 §2.3.2) ====================
+        @self.app.post("/api/v1/config/reload")
+        async def reload_config():
+            """热重载评分/诊断规则 YAML（无需重启）。
+
+            重载范围: config/scoring_rules.yaml + config/diagnosis_rules.yaml。
+            未挂载的插件自动跳过，返回各组件的重载结果。
+            """
+            results = {}
+
+            scoring_plugin = getattr(self, "_scoring_plugin", None)
+            if scoring_plugin is not None:
+                try:
+                    results["scoring"] = scoring_plugin.reload_rules()
+                except Exception as e:
+                    self.logger.error(f"评分规则热重载失败: {e}")
+                    results["scoring"] = False
+            else:
+                results["scoring"] = "skipped (plugin not loaded)"
+
+            analysis_plugin = getattr(self, "_report_analysis_plugin", None)
+            if analysis_plugin is not None:
+                engine = getattr(analysis_plugin, "_diagnosis_engine", None)
+                if engine is not None:
+                    try:
+                        engine.reload_rules()
+                        results["diagnosis"] = True
+                    except Exception as e:
+                        self.logger.error(f"诊断规则热重载失败: {e}")
+                        results["diagnosis"] = False
+                else:
+                    results["diagnosis"] = "skipped (engine not ready)"
+            else:
+                results["diagnosis"] = "skipped (plugin not loaded)"
+
+            return {"code": 0, "message": "ok", "data": results}
+
+        # ==================== 系统设置：诊断规则读写 (P6, doc/02 §6.1 /settings) ====================
+        from .diagnosis_rules_loader import load_rules_raw, save_rules_raw, _parse_rule
+
+        @self.app.get("/api/v1/settings/diagnosis_rules")
+        async def get_diagnosis_rules():
+            """读取诊断规则 YAML 原始结构（供设置页展示）。"""
+            data = load_rules_raw()
+            return {"code": 0, "message": "ok", "data": data}
+
+        @self.app.put("/api/v1/settings/diagnosis_rules")
+        async def put_diagnosis_rules(request: Request):
+            """保存诊断规则并热重载引擎。
+
+            请求体: 与 YAML 同构 {"version": "...", "processes": [...], "common_rules": [...]}
+            写回前逐条校验规则字段，非法条目返回 422。
+            """
+            try:
+                data = await request.json()
+            except Exception as e:
+                return JSONResponse(status_code=400,
+                    content={"code": 400, "message": f"JSON 解析失败: {e}", "data": {}})
+
+            # 校验: 遍历所有规则条目，复用 loader 的解析逻辑做合法性检查
+            problems = []
+
+            def _check_group(items, where):
+                if not isinstance(items, list):
+                    problems.append(f"{where}: 应为规则数组")
+                    return
+                for i, item in enumerate(items):
+                    if not isinstance(item, dict):
+                        problems.append(f"{where}[{i}]: 应为对象")
+                        continue
+                    if _parse_rule(item, where) is None:
+                        problems.append(f"{where}[{i}]: type 非法或 threshold 不是数字")
+
+            if not isinstance(data, dict):
+                return JSONResponse(status_code=422,
+                    content={"code": 422, "message": "请求体应为对象", "data": {}})
+            for p in data.get("processes") or []:
+                if isinstance(p, dict) and p.get("name"):
+                    _check_group(p.get("rules"), f"processes[{p['name']}]")
+                else:
+                    problems.append("processes 条目缺少 name")
+            _check_group(data.get("common_rules"), "common_rules")
+
+            if problems:
+                return JSONResponse(status_code=422,
+                    content={"code": 422, "message": "规则校验失败: " + "; ".join(problems[:5]),
+                             "data": {"problems": problems}})
+
+            written = save_rules_raw(data)
+            self.logger.info(f"诊断规则已更新: {written}")
+
+            # 热重载诊断引擎
+            reload_result = "skipped (plugin not loaded)"
+            analysis_plugin = getattr(self, "_report_analysis_plugin", None)
+            if analysis_plugin is not None:
+                engine = getattr(analysis_plugin, "_diagnosis_engine", None)
+                if engine is not None:
+                    try:
+                        engine.reload_rules()
+                        reload_result = True
+                    except Exception as e:
+                        self.logger.error(f"诊断规则热重载失败: {e}")
+                        reload_result = False
+            return {"code": 0, "message": "ok",
+                    "data": {"written": written, "reload": reload_result}}
+
+        # ==================== 系统设置：评分规则读写 (doc/03 §2.2.2) ====================
+        from .scoring_rules_loader import load_scoring_rules_raw, save_scoring_rules_raw
+
+        @self.app.get("/api/v1/settings/scoring_rules")
+        async def get_scoring_rules():
+            """读取评分规则 YAML 原始结构（供设置页展示）。"""
+            data = load_scoring_rules_raw()
+            return {"code": 0, "message": "ok", "data": data}
+
+        @self.app.put("/api/v1/settings/scoring_rules")
+        async def put_scoring_rules(request: Request):
+            """保存评分规则并热重载评分插件。"""
+            try:
+                data = await request.json()
+            except Exception as e:
+                return JSONResponse(status_code=400,
+                    content={"code": 400, "message": f"JSON 解析失败: {e}", "data": {}})
+
+            if not isinstance(data, dict):
+                return JSONResponse(status_code=422,
+                    content={"code": 422, "message": "请求体应为对象", "data": {}})
+
+            # 基础校验：default/global_penalties 为对象；processes[].name 存在且 substeps 数值合法
+            problems = []
+            for key in ("default", "global_penalties"):
+                if key in data and not isinstance(data[key], dict):
+                    problems.append(f"{key} 应为对象")
+            for p in data.get("processes") or []:
+                if not isinstance(p, dict) or not p.get("name"):
+                    problems.append("processes 条目缺少 name")
+                    continue
+                for s in p.get("substeps") or []:
+                    if not isinstance(s, dict) or not isinstance(s.get("index"), int):
+                        problems.append(f"processes[{p['name']}].substeps 条目缺少整数 index")
+                    elif not isinstance(s.get("std_duration_ms"), (int, float)):
+                        problems.append(f"processes[{p['name']}] 子步骤{s.get('index')} 缺少 std_duration_ms")
+            if problems:
+                return JSONResponse(status_code=422,
+                    content={"code": 422, "message": "规则校验失败: " + "; ".join(problems[:5]),
+                             "data": {"problems": problems}})
+
+            written = save_scoring_rules_raw(data)
+            self.logger.info(f"评分规则已更新: {written}")
+
+            # 热重载评分插件
+            reload_result = "skipped (plugin not loaded)"
+            scoring_plugin = getattr(self, "_scoring_plugin", None)
+            if scoring_plugin is not None:
+                try:
+                    reload_result = bool(scoring_plugin.reload_rules())
+                except Exception as e:
+                    self.logger.error(f"评分规则热重载失败: {e}")
+                    reload_result = False
+            return {"code": 0, "message": "ok",
+                    "data": {"written": written, "reload": reload_result}}
+
+        # ==================== 系统设置：系统信息（库路径/备份目录） ====================
+        @self.app.get("/api/v1/settings/system_info")
+        async def get_system_info():
+            """返回系统设置页展示信息：数据库路径、备份配置与现有备份列表。"""
+            import os as _os
+            # 数据库实际位置解析：cwd 相对路径（cwd=/ 时不可靠）→ 包内 config/（插件默认位置），取存在者
+            db_rel = str(self.config.get("db_path", "config/app.db"))
+            pkg_db = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)),
+                                   "..", "..", "config", "app.db")
+            db_candidates = [_os.path.abspath(db_rel), _os.path.abspath(pkg_db)]
+            db_path = next((p for p in db_candidates if _os.path.exists(p)), db_candidates[0])
+            # 与维护线程同一解析逻辑：cwd 相对路径不可靠，默认落在 db 同级 backup/
+            backup_dir = str(self.config.get("backup_dir", "")) or \
+                _os.path.join(_os.path.dirname(db_path), "backup")
+            backups = []
+            if _os.path.isdir(backup_dir):
+                for name in sorted(_os.listdir(backup_dir), reverse=True):
+                    if name.startswith("app_") and name.endswith(".db"):
+                        fp = _os.path.join(backup_dir, name)
+                        try:
+                            backups.append({"name": name, "size_kb": round(_os.path.getsize(fp) / 1024, 1),
+                                            "mtime": int(_os.path.getmtime(fp) * 1000)})
+                        except OSError:
+                            pass
+            return {"code": 0, "message": "ok", "data": {
+                "db_path": db_path,
+                "db_exists": _os.path.exists(db_path),
+                "backup_dir": backup_dir,
+                "backup_time": str(self.config.get("backup_time", "03:00")),
+                "backup_keep_days": int(self.config.get("backup_keep_days", 7)),
+                "backups": backups[:20],
+            }}
+
+
     
     def _start_websocket_broadcast(self):
         """启动WebSocket广播线程 - 使用uvicorn主事件循环"""
@@ -1514,6 +1790,129 @@ class WebServer:
 
         self._broadcast_thread = threading.Thread(target=broadcast_loop, daemon=True)
         self._broadcast_thread.start()
+
+    def _start_maintenance_loop(self):
+        """启动每日维护线程：SQLite 在线备份 + 备份轮转清理（doc/02 §4.6 轻量化部署）。
+
+        无 APScheduler 依赖，与广播线程同模式的 while+sleep 轻量实现：
+        - 每天首次循环触发一次备份（backup_time 配置，默认 03:00 本地时间）
+        - 保留最近 backup_keep_days 份（默认 7），过期删除
+        """
+        import sqlite3
+        import os
+
+        backup_time = str(self.config.get("backup_time", "03:00"))
+        keep_days = int(self.config.get("backup_keep_days", 7))
+        # 数据库实际位置：cwd 相对路径（服务 cwd=/ 时不可靠）→ 包内 config/，取存在者
+        import os as _os
+        db_rel = str(self.config.get("db_path", "config/app.db"))
+        pkg_db = _os.path.join(_os.path.dirname(_os.path.realpath(__file__)),
+                               "..", "..", "config", "app.db")
+        db_candidates = [_os.path.abspath(db_rel), _os.path.abspath(pkg_db)]
+        db_path = next((p for p in db_candidates if _os.path.exists(p)), db_candidates[0])
+        # 备份目录：相对 db_path 同级 config/（cwd 无关）
+        backup_dir = str(self.config.get("backup_dir", "")) or \
+            _os.path.join(_os.path.dirname(db_path), "backup")
+        # 证据图保留天数（doc/03 §3.7 默认 90 天，keep_forever=1 永久保留）
+        evidence_retention_days = int(self.config.get("evidence_retention_days", 90))
+        last_backup_date = [None]  # 闭包内可变状态：最近一次备份的日期字符串
+
+        def _do_backup():
+            try:
+                if not os.path.exists(db_path):
+                    return
+                os.makedirs(backup_dir, exist_ok=True)
+                dest = os.path.join(backup_dir,
+                                    f"app_{datetime.now().strftime('%Y%m%d')}.db")
+                if os.path.exists(dest):
+                    return  # 当日已备份
+                src = sqlite3.connect(db_path)
+                try:
+                    dst = sqlite3.connect(dest)
+                    try:
+                        with dst:
+                            src.backup(dst)
+                    finally:
+                        dst.close()
+                finally:
+                    src.close()
+                # 轮转清理过期备份
+                cutoff = time.time() - keep_days * 86400
+                removed = 0
+                for name in os.listdir(backup_dir):
+                    if not name.startswith("app_") or not name.endswith(".db"):
+                        continue
+                    fp = os.path.join(backup_dir, name)
+                    try:
+                        if os.path.getmtime(fp) < cutoff:
+                            os.remove(fp)
+                            removed += 1
+                    except OSError:
+                        pass
+                self.logger.info(f"每日维护完成: 备份 {dest}" +
+                                 (f"，清理过期备份 {removed} 份" if removed else ""))
+            except Exception as e:
+                self.logger.error(f"每日维护失败: {e}")
+
+        def _do_evidence_cleanup():
+            """证据图过期清理（doc/03 §3.7：默认保留 90 天，keep_forever=1 跳过）。
+
+            删除 file_path/jpg_path/thumb_path 指向的本地文件后删除记录；
+            端侧绝对路径（跨机不可达）只删记录不报错。
+            """
+            try:
+                if not os.path.exists(db_path):
+                    return
+                cutoff_ms = int(time.time() * 1000) - evidence_retention_days * 86400 * 1000
+                conn = sqlite3.connect(db_path)
+                try:
+                    rows = conn.execute(
+                        """SELECT id, file_path, jpg_path, thumb_path FROM evidence
+                           WHERE keep_forever = 0 AND created_at < ?""",
+                        (cutoff_ms,),
+                    ).fetchall()
+                    removed_files = 0
+                    for rid, fpath, jpg, thumb in rows:
+                        for p in (fpath, jpg, thumb):
+                            if p and os.path.isabs(p) and os.path.exists(p):
+                                try:
+                                    os.remove(p)
+                                    removed_files += 1
+                                except OSError:
+                                    pass
+                        conn.execute("DELETE FROM evidence WHERE id = ?", (rid,))
+                    conn.commit()
+                finally:
+                    conn.close()
+                if rows:
+                    self.logger.info(
+                        f"证据清理完成: 删除 {len(rows)} 条记录（>{evidence_retention_days}天），"
+                        f"移除本地文件 {removed_files} 个"
+                    )
+            except Exception as e:
+                self.logger.error(f"证据清理失败: {e}")
+
+        def maintenance_loop():
+            while self.running:
+                try:
+                    now = datetime.now()
+                    today = now.strftime("%Y%m%d")
+                    hh, mm = backup_time.split(":")[:2]
+                    scheduled = now.replace(hour=int(hh), minute=int(mm), second=0, microsecond=0)
+                    # 到达计划时刻且今日未备份 → 执行
+                    if now >= scheduled and last_backup_date[0] != today:
+                        last_backup_date[0] = today
+                        _do_backup()
+                        _do_evidence_cleanup()
+                    # 每 60s 检查一次；凌晨前低频休眠无影响
+                    time.sleep(60)
+                except Exception as e:
+                    self.logger.error(f"维护线程异常: {e}")
+                    time.sleep(300)
+
+        self._maintenance_thread = threading.Thread(target=maintenance_loop, daemon=True)
+        self._maintenance_thread.start()
+        self.logger.info(f"每日维护线程已启动: 备份时刻 {backup_time}，保留 {keep_days} 天")
     
     def _broadcast_to_all(self, message: dict):
         """广播消息到所有连接 - 同步版本"""
