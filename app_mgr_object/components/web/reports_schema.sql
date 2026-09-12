@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS reports (
     duration_ms         REAL,                           -- 用时 (= end_ms - start_ms, 可能小数 ms)
     process_elapsed_ms  INTEGER,                        -- 操作用时 (引擎单调差值, doc/58)
     total_score         REAL,                           -- 综合得分 (doc/38 §7 后续扩展字段)
+    grade_level         TEXT,                           -- 评分等级: 优秀/良好/合格/不合格 (doc/01 §八, P1 评分引擎)
     raw_json_path       TEXT,                           -- 原始 JSON 文件留存路径
     ts_upload_ms        INTEGER NOT NULL,               -- 上报时刻 (epoch ms, 唯一墙钟时间)
     created_at          INTEGER NOT NULL                -- 平台入库时刻 (epoch ms)
@@ -59,6 +60,12 @@ CREATE TABLE IF NOT EXISTS report_substeps (
     count               INTEGER,                        -- 操作片段数 (>1=重复/中断重入)
     total_duration_ms   REAL,                           -- 全部片段累计用时 ms
     timeout             INTEGER,                        -- 0/1 bool
+    std_duration_ms     REAL,                           -- SOP 标准用时 ms (doc/01 §八, P1 评分引擎)
+    over_std            INTEGER DEFAULT 0,              -- 超标 0/1 (实际>标准)
+    omitted             INTEGER DEFAULT 0,              -- 遗漏 0/1
+    score               REAL,                           -- 子步骤得分 (P1 评分引擎回写)
+    sequence_error      INTEGER DEFAULT 0,              -- 顺序错误 0/1 (P1 评分引擎回写)
+    segments            TEXT,                           -- 操作片段明细 (JSON 数组, 可选)
     PRIMARY KEY (report_id, idx),
     FOREIGN KEY (report_id) REFERENCES reports(report_id)
 );
@@ -117,6 +124,29 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 -- ============================================================
 -- 索引
 -- ============================================================
+-- ------------------------------------------------------------
+-- 7. evidence — 证据图元数据表 (P3, doc/01 §七)
+--    幂等键: (device_id, round_start_ms, sub, ts) — dev01 §2.3
+--    两通道(实时/整包兜底)均按此键去重; BMP 原图落盘后异步转 JPG
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS evidence (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id           TEXT    NOT NULL,
+    round_start_ms      INTEGER NOT NULL,
+    sub                 INTEGER NOT NULL,
+    ts                  INTEGER NOT NULL,
+    file_path           TEXT    NOT NULL,               -- BMP 原图绝对/相对路径
+    jpg_path            TEXT,                           -- 异步转 JPG 后的路径 (P3)
+    thumb_path          TEXT,                           -- 缩略图路径 (P3)
+    file_size           INTEGER,                        -- BMP 原始字节数
+    keep_forever        INTEGER NOT NULL DEFAULT 0,    -- 1=永久保留(跳过清理)
+    created_at          INTEGER NOT NULL,               -- 入库时刻 (epoch ms)
+    UNIQUE(device_id, round_start_ms, sub, ts)
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_round ON evidence(device_id, round_start_ms);
+CREATE INDEX IF NOT EXISTS idx_evidence_sub   ON evidence(device_id, round_start_ms, sub);
+
 CREATE INDEX IF NOT EXISTS idx_reports_device      ON reports(device_id);
 CREATE INDEX IF NOT EXISTS idx_reports_student     ON reports(student_id);
 CREATE INDEX IF NOT EXISTS idx_reports_start       ON reports(start_ms);

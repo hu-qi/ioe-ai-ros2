@@ -119,7 +119,7 @@ class TestListStudents:
         client, repo = app_and_repo
         for i in range(5):
             repo.create({"id": f"S{i:03d}", "name": f"学员{i}"})
-        resp = client.get("/api/v1/students")
+        resp = client.get("/api/v1/students?page=1&page_size=20&status=all")
         data = resp.json()["data"]
         assert data["total"] == 5
         assert len(data["list"]) == 5
@@ -128,10 +128,26 @@ class TestListStudents:
         client, repo = app_and_repo
         repo.create({"id": "S001", "name": "张明"})
         repo.create({"id": "S002", "name": "李华"})
-        resp = client.get("/api/v1/students?keyword=张明")
+        resp = client.get("/api/v1/students?keyword=张明&page=1&page_size=20&status=all")
         data = resp.json()["data"]
         assert data["total"] == 1
         assert data["list"][0]["name"] == "张明"
+
+    def test_edge_sync_format(self, app_and_repo):
+        """dev01 v2 §7: 无 page/page_size/status 参数 = 端侧同步模式,
+        响应为 data.students[].tid/name/cls."""
+        client, repo = app_and_repo
+        repo.create({"id": "S2024001", "name": "张明", "cls": "一班"})
+        repo.create({"id": "S2024002", "name": "李华", "cls": "二班"})
+        resp = client.get("/api/v1/students")
+        body = resp.json()
+        assert body["code"] == 0
+        data = body["data"]
+        assert data["total"] == 2
+        assert set(data.keys()) >= {"total", "students"}, "端侧同步模式响应缺少 students 字段"
+        s0 = {s["tid"]: s for s in data["students"]}["S2024001"]
+        assert s0["name"] == "张明"
+        assert s0["cls"] == "一班"
 
     def test_list_pagination(self, app_and_repo):
         client, repo = app_and_repo

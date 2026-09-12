@@ -38,7 +38,7 @@ class TeachingDashboardPlugin(BasePlugin):
 
         self._db_path: str = self.config.get(
             "db_path",
-            os.path.join(os.path.dirname(__file__), "..", "..", "config", "app.db")
+            os.path.join(os.path.dirname(__file__), "..", "config", "app.db")
         )
 
         # 看板参数
@@ -173,19 +173,20 @@ class TeachingDashboardPlugin(BasePlugin):
         # 1. 今日概览
         # ------------------------------------------------------------ #
         @app.get("/api/v1/dashboard/today_summary")
-        async def today_summary():
-            result = repo.get_today_summary(pass_threshold)
+        async def today_summary(process_name: str = ''):
+            result = repo.get_today_summary(pass_threshold, process_name=process_name.strip())
             return {"code": 0, "message": "ok", "data": result}
 
         # ------------------------------------------------------------ #
         # 2. 高频错误点 TOP5
         # ------------------------------------------------------------ #
         @app.get("/api/v1/dashboard/top_error_points")
-        async def top_error_points(limit: int = 0):
+        async def top_error_points(limit: int = 0, process_name: str = ''):
             n = limit if limit > 0 else top_error_limit
             if n > 20:
                 n = 20
-            points = repo.get_top_error_points(limit=n, weights=error_weights)
+            points = repo.get_top_error_points(limit=n, weights=error_weights,
+                                               process_name=process_name.strip())
             return {"code": 0, "message": "ok",
                     "data": {"points": points, "count": len(points)}}
 
@@ -218,6 +219,7 @@ class TeachingDashboardPlugin(BasePlugin):
         @app.get("/api/v1/dashboard/improvement_validation")
         async def improvement_validation(
             cls: str = '',
+            process_name: str = '',
             before_start: int = 0,
             before_end: int = 0,
             after_start: int = 0,
@@ -240,9 +242,54 @@ class TeachingDashboardPlugin(BasePlugin):
                 cls=cls,
                 before_range={"date_start": before_start, "date_end": before_end},
                 after_range={"date_start": after_start, "date_end": after_end},
-                pass_threshold=pass_threshold
+                pass_threshold=pass_threshold,
+                process_name=process_name.strip()
             )
             return {"code": 0, "message": "ok", "data": result}
+
+        # ------------------------------------------------------------ #
+        # 6. 大屏：最近预警列表（诊断全类型 + 异常报告）
+        # ------------------------------------------------------------ #
+        @app.get("/api/v1/dashboard/recent_alerts")
+        async def recent_alerts(limit: int = 0, hours: int = 72):
+            n = limit if limit > 0 else 30
+            if n > 100:
+                n = 100
+            alerts = repo.get_recent_alerts(limit=n, hours=hours)
+            return {"code": 0, "message": "ok",
+                    "data": {"alerts": alerts, "count": len(alerts)}}
+
+        # ------------------------------------------------------------ #
+        # 7. 大屏：近 N 天成绩趋势
+        # ------------------------------------------------------------ #
+        @app.get("/api/v1/dashboard/score_trend")
+        async def score_trend(days: int = 7, cls: str = '', process_name: str = ''):
+            if days <= 0:
+                days = 7
+            if days > 90:
+                days = 90
+            trend = repo.get_score_trend_cached(
+                days=days, pass_threshold=pass_threshold,
+                cls=cls.strip(), process_name=process_name.strip()
+            )
+            return {"code": 0, "message": "ok",
+                    "data": {"trend": trend, "days": days}}
+
+        # ------------------------------------------------------------ #
+        # 8. 大屏：近 N 天班级对比
+        # ------------------------------------------------------------ #
+        @app.get("/api/v1/dashboard/class_comparison")
+        async def class_comparison(days: int = 30, process_name: str = ''):
+            if days <= 0:
+                days = 30
+            if days > 365:
+                days = 365
+            classes = repo.get_class_comparison_cached(
+                days=days, pass_threshold=pass_threshold,
+                process_name=process_name.strip()
+            )
+            return {"code": 0, "message": "ok",
+                    "data": {"classes": classes, "count": len(classes)}}
 
         if logger:
             logger.info("TeachingDashboardPlugin 路由注册完成 (6 个端点)")

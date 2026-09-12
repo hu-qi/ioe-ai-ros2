@@ -46,7 +46,7 @@ class ReportAnalysisPlugin(BasePlugin):
 
         self._db_path: str = self.config.get(
             "db_path",
-            os.path.join(os.path.dirname(__file__), "..", "..", "config", "app.db")
+            os.path.join(os.path.dirname(__file__), "..", "config", "app.db")
         )
         schema_path = self.config.get(
             "schema_path",
@@ -188,6 +188,7 @@ class ReportAnalysisPlugin(BasePlugin):
             cls: str = '',
             device_id: str = '',
             student_id: str = '',
+            process_name: str = '',
             date_start: int = 0,
             date_end: int = 0
         ):
@@ -195,6 +196,7 @@ class ReportAnalysisPlugin(BasePlugin):
                 "cls": cls.strip(),
                 "device_id": device_id.strip(),
                 "student_id": student_id.strip(),
+                "process_name": process_name.strip(),
                 "date_start": date_start,
                 "date_end": date_end,
             }
@@ -214,6 +216,7 @@ class ReportAnalysisPlugin(BasePlugin):
         @app.get("/api/v1/analysis/student_cumulative")
         async def student_cumulative_stats(
             student_id: str = '',
+            process_name: str = '',
             date_start: int = 0,
             date_end: int = 0
         ):
@@ -223,7 +226,7 @@ class ReportAnalysisPlugin(BasePlugin):
                     content={"code": 422, "message": "student_id 不能为空", "data": {}}
                 )
             date_range = {"date_start": date_start, "date_end": date_end}
-            result = repo.get_student_cumulative_stats(student_id, date_range)
+            result = repo.get_student_cumulative_stats(student_id, date_range, process_name=process_name.strip())
             return {"code": 0, "message": "ok", "data": result}
 
         # ------------------------------------------------------------ #
@@ -232,6 +235,7 @@ class ReportAnalysisPlugin(BasePlugin):
         @app.get("/api/v1/analysis/class_summary")
         async def class_summary_stats(
             cls: str = '',
+            process_name: str = '',
             date_start: int = 0,
             date_end: int = 0
         ):
@@ -241,7 +245,7 @@ class ReportAnalysisPlugin(BasePlugin):
                     content={"code": 422, "message": "cls 不能为空", "data": {}}
                 )
             date_range = {"date_start": date_start, "date_end": date_end}
-            result = repo.get_class_summary(cls, date_range)
+            result = repo.get_class_summary(cls, date_range, process_name=process_name.strip())
             return {"code": 0, "message": "ok", "data": result}
 
         # ------------------------------------------------------------ #
@@ -253,13 +257,15 @@ class ReportAnalysisPlugin(BasePlugin):
             cls: str = '',
             student_id: str = '',
             date_start: int = 0,
-            date_end: int = 0
+            date_end: int = 0,
+            process_name: str = ''
         ):
             date_range = {"date_start": date_start, "date_end": date_end}
             diagnoses = engine.diagnose_all(
                 cls=cls.strip(),
                 student_id=student_id.strip(),
-                date_range=date_range
+                date_range=date_range,
+                process_name=process_name.strip()
             )
 
             # 持久化诊断结果
@@ -295,5 +301,54 @@ class ReportAnalysisPlugin(BasePlugin):
                 "data": {"diagnoses": results, "count": len(results)}
             }
 
+        # ------------------------------------------------------------ #
+        # 6. 教学闭环 (P5, doc/01 §6.4 / doc/02 §4.4)
+        # ------------------------------------------------------------ #
+        @app.post("/api/v1/teaching_actions")
+        async def create_teaching_action(request: Request):
+            """记录教学调整事件。必填: description / class_name; 可选: action_date(ms)/target_substep/process_name。"""
+            try:
+                payload = await request.json()
+            except Exception as e:
+                return JSONResponse(
+                    status_code=400,
+                    content={"code": 400, "message": f"JSON 解析失败: {e}", "data": {}}
+                )
+            if not payload.get("description") or not payload.get("class_name"):
+                return JSONResponse(
+                    status_code=422,
+                    content={"code": 422, "message": "缺必填字段 (description/class_name)", "data": {}}
+                )
+            action_id = repo.create_teaching_action(payload)
+            return {"code": 0, "message": "ok", "data": {"action_id": action_id}}
+
+        @app.get("/api/v1/teaching_actions")
+        async def list_teaching_actions(
+            class_name: str = '',
+            process_name: str = '',
+            limit: int = 50
+        ):
+            """教学调整事件列表（时间倒序）。"""
+            if limit > 200:
+                limit = 200
+            actions = repo.list_teaching_actions(
+                class_name=class_name.strip(),
+                process_name=process_name.strip(),
+                limit=limit
+            )
+            return {"code": 0, "message": "ok",
+                    "data": {"actions": actions, "count": len(actions)}}
+
+        @app.get("/api/v1/teaching_actions/{action_id}/verify")
+        async def verify_teaching_action(action_id: int):
+            """改进效果验证: 对比调整前后班级平均分/完成率/通过率（前后各 30 天窗口）。"""
+            result = repo.verify_teaching_action(action_id)
+            if result is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"code": 404, "message": "教学调整事件不存在", "data": {}}
+                )
+            return {"code": 0, "message": "ok", "data": result}
+
         if logger:
-            logger.info("ReportAnalysisPlugin 路由注册完成 (5 个端点)")
+            logger.info("ReportAnalysisPlugin 路由注册完成 (8 个端点)")

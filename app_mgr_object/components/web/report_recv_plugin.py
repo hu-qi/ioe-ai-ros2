@@ -109,7 +109,7 @@ class ReportRecvPlugin(BasePlugin):
           POST /api/v1/evidence                 接收抓拍图
         """
         from fastapi import Request, UploadFile, File, Form, HTTPException
-        from fastapi.responses import JSONResponse
+        from fastapi.responses import JSONResponse, FileResponse
 
         repo = self._repo
         merger = self._merger
@@ -159,6 +159,19 @@ class ReportRecvPlugin(BasePlugin):
             # 整包入库 (去重幂等)
             result_id, is_dup = repo.insert_full_report(payload, raw_json_path=raw_path)
 
+            # P3: 整包兜底通道 — round.evidence[] 元数据入库（幂等键同实时通道）
+            # file 为端侧绝对路径（平台无文件），仅作关联记录；本地转换时跳过不存在的路径
+            try:
+                for ev in (round_data.get("evidence") or []):
+                    if not isinstance(ev, dict) or ev.get("sub") is None or ev.get("ts") is None:
+                        continue
+                    repo.insert_evidence_meta(
+                        device_id, start_ms, int(ev.get("sub")), int(ev.get("ts")),
+                        str(ev.get("file", "")), file_size=0
+                    )
+            except Exception as ev_err:
+                logger.warning(f"整包 evidence 元数据写入异常（不阻塞）: {ev_err}")
+
             if is_dup:
                 logger.info(f"整包去重命中 report_id={result_id}")
 
@@ -170,7 +183,16 @@ class ReportRecvPlugin(BasePlugin):
                 "is_duplicate": is_dup
             })
 
-            return {"code": 0, "message": "ok", "data": {"report_id": result_id}}
+            return {
+                "code": 0,
+                "message": "ok",
+                "data": {
+                    "report_id": result_id,
+                    "device_id": device_id,
+                    "finish_reason": round_data.get("finish_reason", ""),
+                    "evidence": len(round_data.get("evidence") or []),
+                }
+            }
 
         # ------------------------------------------------------------ #
         # 2. 接收增量事件 (doc/45 §2)
@@ -273,14 +295,10 @@ class ReportRecvPlugin(BasePlugin):
         # ------------------------------------------------------------ #
         @app.post("/api/v1/subscriptions")
         async def subscribe_device(request: Request):
-            """订阅设备 (doc/45 §4.1). 重复订阅 = 更新 note + 保持 active.
+            """订阅设备 (doc/dev01 §6, 可选统计能力).
 
-            v3 增强: 接受 edge_ips（IP 列表）/edge_port。
-            订阅写入 DB 后，平台**遍历 edge_ips 逐个主动 POST 通知**（全推）：
-              POST http://{edge_ip}:{edge_port}/api/notify_subscribe
-              {"device_id": ..., "platform_ip": ..., "platform_port": 9183}
-            边缘端收到通知后即拿到平台地址，开始轮询订阅状态 + 上报。
-            跨网段场景下，只要平台能路由到 edge_ip，推送即可达。
+            v3 (doc/83/84) 后端侧已移除订阅机制, 本接口仅保留用于
+            平台侧统计/展示, 不再主动推送 notify_subscribe 到端侧。
             """
             try:
                 payload = await request.json()
@@ -298,105 +316,23 @@ class ReportRecvPlugin(BasePlugin):
                 )
 
             note = payload.get("note", "")
-            # v3: edge_ips 支持三种输入形式:
-            #   ["1.2.3.4:9184","1.2.3.5:9185"]  (列表, 每个 IP 可带自己的端口)
-            #   ["1.2.3.4","1.2.3.5"]            (列表, 不带端口, 用 edge_port)
-            #   "1.2.3.4:9184,1.2.3.5:9185"      (逗号分隔, 每个 IP 可带端口)
-            #   "1.2.3.4"                        (单个字符串, 向后兼容)
-            #   "1.2.3.4,1.2.3.5"                (逗号分隔)
-            raw_edges = payload.get("edge_ips")
-            if raw_edges is None:
-                # 向后兼容旧字段 edge_ip
-                raw_edges = payload.get("edge_ip")
-            if isinstance(raw_edges, str):
-                if "," in raw_edges:
-                    edge_ips = [s.strip() for s in raw_edges.split(",") if s.strip()]
-                else:
-                    edge_ips = [raw_edges.strip()] if raw_edges.strip() else []
-            elif isinstance(raw_edges, list):
-                edge_ips = [str(s).strip() for s in raw_edges if str(s).strip()]
-            else:
-                edge_ips = []
-
-            edge_port = int(payload.get("edge_port", 9184))
-            result = repo.upsert_subscription(
-                device_id, note, edge_ips=edge_ips, edge_port=edge_port
-            )
-
-            # 遍历 edge_ips 逐个推送（全推，每个独立超时，失败不影响其他）
-            # 每个 IP 可带自己的端口: "1.2.3.4:9185" → host=1.2.3.4, port=9185
-            # 不带端口则用全局 edge_port
-            import urllib.request
-            import json as _json
-            platform_ip = request.client.host if request.client else "127.0.0.1"
-            notify_body = _json.dumps({
-                "device_id": device_id,
-                "platform_ip": platform_ip,
-                "platform_port": 9183,
-                "subscribed_at_ms": result.get("subscribed_at_ms"),
-            }).encode()
-
-            per_ip_results = []
-            ok_count = 0
-            for ip_spec in edge_ips:
-                # 解析 ip:port 格式
-                if ":" in ip_spec:
-                    host, port_str = ip_spec.rsplit(":", 1)
-                    try:
-                        port = int(port_str)
-                    except ValueError:
-                        host, port = ip_spec, edge_port
-                else:
-                    host, port = ip_spec, edge_port
-
-                ip_result = {"ip": ip_spec, "host": host, "port": port, "ok": False, "error": None}
-                try:
-                    notify_url = f"http://{host}:{port}/api/notify_subscribe"
-                    req = urllib.request.Request(
-                        notify_url, data=notify_body, method="POST",
-                        headers={"Content-Type": "application/json"},
-                    )
-                    with urllib.request.urlopen(req, timeout=3) as resp:
-                        ip_result["ok"] = (resp.status == 200)
-                        if ip_result["ok"]:
-                            ok_count += 1
-                except Exception as e:
-                    ip_result["error"] = str(e)
-                per_ip_results.append(ip_result)
-
-            # 汇总状态: 全成功=sent, 部分成功=partial, 全失败=failed, 无 IP=pending
-            if not edge_ips:
-                notify_status = "pending"
-            elif ok_count == len(edge_ips):
-                notify_status = "sent"
-            elif ok_count > 0:
-                notify_status = "partial"
-            else:
-                notify_status = "failed"
-
-            repo.update_notify_status(
-                device_id,
-                notify_status,
-                notify_detail=_json.dumps(per_ip_results),
-            )
-
-            result["notify"] = {
-                "status": notify_status,
-                "ok_count": ok_count,
-                "total": len(edge_ips),
-                "per_ip": per_ip_results,
-            }
+            result = repo.upsert_subscription(device_id, note)
             return {"code": 0, "message": "ok", "data": result}
 
         @app.get("/api/v1/subscriptions/{device_id}")
         async def get_subscription_status(device_id: str):
-            """查询订阅状态 (doc/45 §4.2, 边缘端轮询用)."""
+            """查询订阅状态 (doc/45 §4.2, doc/dev01 §6, 边缘端轮询用).
+
+            未订阅设备返回 active=false（HTTP 200），而非 404——
+            dev01 v2 下端侧轮询未订阅设备属正常态，不应报错。
+            """
             sub = repo.get_subscription(device_id)
             if not sub:
-                return JSONResponse(
-                    status_code=404,
-                    content={"code": 404, "message": "设备未订阅", "data": {}}
-                )
+                return {
+                    "code": 0,
+                    "message": "ok",
+                    "data": {"device_id": device_id, "active": False}
+                }
             return {
                 "code": 0,
                 "message": "ok",
@@ -427,18 +363,35 @@ class ReportRecvPlugin(BasePlugin):
             file: UploadFile = File(...),
             sub: int = Form(...),
             ts: int = Form(...),
-            device_id: str = Form(...)
+            device_id: str = Form(...),
+            round_start_ms: Optional[int] = Form(None)
         ):
-            """接收 evidence 抓拍图 (multipart/form-data)."""
+            """接收 evidence 抓拍图 (multipart/form-data, doc/dev01 §5)."""
             try:
                 file_bytes = await file.read()
-                round_start_ms = ts  # 简化: ts 即为 round_start_ms 的参考
-                # 实际应从 payload 获取 round_start_ms, 此处用 ts 近似
+                # round_start_ms 可选（端侧推荐携带），缺省回退为 ts
+                effective_round_start = round_start_ms if round_start_ms else ts
                 saved_path = repo.save_evidence(
-                    device_id, round_start_ms, sub, ts, file_bytes, self._evidence_dir
+                    device_id, effective_round_start, sub, ts, file_bytes, self._evidence_dir
                 )
-                logger.info(f"evidence 保存成功: {saved_path}")
-                return {"code": 0, "message": "ok", "data": {"path": saved_path}}
+                # P3: 元数据入库（幂等键 device_id+round_start_ms+sub+ts）
+                is_new = repo.insert_evidence_meta(
+                    device_id, effective_round_start, sub, ts,
+                    saved_path, file_size=len(file_bytes)
+                )
+                logger.info(f"evidence 保存成功: {saved_path} (new={is_new})")
+                return {
+                    "code": 0,
+                    "message": "ok",
+                    "data": {
+                        "saved": saved_path,
+                        "path": saved_path,
+                        "device_id": device_id,
+                        "sub": str(sub),
+                        "ts": str(ts),
+                        "round_start_ms": str(effective_round_start),
+                    }
+                }
             except Exception as e:
                 logger.error(f"evidence 接收失败: {e}")
                 return JSONResponse(
@@ -446,5 +399,49 @@ class ReportRecvPlugin(BasePlugin):
                     content={"code": 500, "message": f"evidence 存储失败: {e}", "data": {}}
                 )
 
+        # ------------------------------------------------------------ #
+        # 7. 证据列表/图片访问 (P3, doc/01 §七)
+        # ------------------------------------------------------------ #
+        @app.get("/api/v1/evidence")
+        async def list_evidence(
+            device_id: str = "",
+            round_start_ms: int = 0,
+            sub: int = 0,
+            limit: int = 200
+        ):
+            """证据元数据列表（jpg_path 非空表示已转换可直接展示）。"""
+            if not device_id:
+                return JSONResponse(
+                    status_code=422,
+                    content={"code": 422, "message": "缺必填参数 device_id", "data": {}}
+                )
+            if limit > 500:
+                limit = 500
+            rows = repo.list_evidence(device_id, round_start_ms, sub, limit)
+            return {"code": 0, "message": "ok",
+                    "data": {"evidence": rows, "count": len(rows)}}
+
+        @app.get("/api/v1/evidence/{evidence_id}/image")
+        async def evidence_image(evidence_id: int, thumb: int = 0):
+            """证据图访问: 默认 JPG 展示图; thumb=1 返回缩略图; 未转换时回退 BMP 原图。"""
+            row = repo.get_evidence_by_id(evidence_id)
+            if not row:
+                return JSONResponse(
+                    status_code=404,
+                    content={"code": 404, "message": "证据不存在", "data": {}}
+                )
+            candidates = ([row.get("thumb_path"), row.get("jpg_path")] if thumb
+                          else [row.get("jpg_path"), row.get("thumb_path")])
+            candidates.append(row.get("file_path"))  # BMP 原图兜底
+            for path in candidates:
+                if path and os.path.exists(path):
+                    media = "image/bmp" if path.lower().endswith(".bmp") else "image/jpeg"
+                    return FileResponse(path, media_type=media)
+            # 平台无该文件（端侧路径登记记录）
+            return JSONResponse(
+                status_code=404,
+                content={"code": 404, "message": "证据文件不存在（端侧路径登记记录）", "data": {"device_id": row.get("device_id"), "file_path": row.get("file_path")}}
+            )
+
         if logger:
-            logger.info("ReportRecvPlugin 路由注册完成 (9 个端点)")
+            logger.info("ReportRecvPlugin 路由注册完成 (11 个端点)")

@@ -46,6 +46,7 @@ class ReportRepo:
         try:
             conn.executescript(schema_sql)
             self._migrate_subscriptions_columns(conn)
+            self._migrate_scoring_columns(conn)
             conn.commit()
             if self.logger:
                 self.logger.info("ReportRepo: schema 初始化完成")
@@ -94,6 +95,34 @@ class ReportRepo:
                         "UPDATE subscriptions SET edge_ips = ? WHERE device_id = ?",
                         (_json.dumps([old_ip]), device_id),
                     )
+
+    def _migrate_scoring_columns(self, conn: sqlite3.Connection) -> None:
+        """P1 评分引擎: 给存量 reports / report_substeps 表补齐评分相关字段
+        （CREATE TABLE IF NOT EXISTS 不会改已有表；SQLite ADD COLUMN 带 NULL/默认值对存量行安全）。"""
+        cur = conn.cursor()
+
+        cur.execute("PRAGMA table_info(reports)")
+        report_cols = {row[1] for row in cur.fetchall()}
+        if "grade_level" not in report_cols:
+            cur.execute("ALTER TABLE reports ADD COLUMN grade_level TEXT")
+            if self.logger:
+                self.logger.info("ReportRepo: 迁移字段 reports.grade_level (P1 评分)")
+
+        cur.execute("PRAGMA table_info(report_substeps)")
+        sub_cols = {row[1] for row in cur.fetchall()}
+        scoring_cols = [
+            ("std_duration_ms", "REAL"),
+            ("over_std", "INTEGER DEFAULT 0"),
+            ("omitted", "INTEGER DEFAULT 0"),
+            ("score", "REAL"),
+            ("sequence_error", "INTEGER DEFAULT 0"),
+            ("segments", "TEXT"),
+        ]
+        for col_name, col_type in scoring_cols:
+            if col_name not in sub_cols:
+                cur.execute(f"ALTER TABLE report_substeps ADD COLUMN {col_name} {col_type}")
+                if self.logger:
+                    self.logger.info(f"ReportRepo: 迁移字段 report_substeps.{col_name} (P1 评分)")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -630,6 +659,56 @@ class ReportRepo:
             conn.close()
 
     # ------------------------------------------------------------------
+    # 评分结果回写 (P1 评分引擎, doc/01 §八)
+    # ------------------------------------------------------------------
+    def save_scoring_result(self, report_id: str,
+                            total_score: float, grade_level: str,
+                            substep_scores: Dict[int, float],
+                            sequence_errors: set = None,
+                            std_durations: Dict[int, Optional[float]] = None) -> bool:
+        """回写评分结果: reports.total_score/grade_level + report_substeps.score 等明细。
+
+        Args:
+            report_id: 报告 ID (R{device}_{start_ms})
+            total_score: 整轮总分
+            grade_level: 等级文本
+            substep_scores: {子步骤全局序号: 得分}
+            sequence_errors: 顺序错误的子步骤序号集合
+            std_durations: {子步骤序号: SOP 标准用时 ms}（评分时采用的值，供诊断复用）
+        Returns:
+            是否成功命中报告（report 不存在返回 False）
+        """
+        sequence_errors = sequence_errors or set()
+        std_durations = std_durations or {}
+        conn = self._connect()
+        try:
+            existing = conn.execute(
+                "SELECT report_id FROM reports WHERE report_id = ?", (report_id,)
+            ).fetchone()
+            if not existing:
+                return False
+
+            conn.execute(
+                "UPDATE reports SET total_score=?, grade_level=? WHERE report_id=?",
+                (total_score, grade_level, report_id)
+            )
+            for idx, score in (substep_scores or {}).items():
+                over_std = 1 if (
+                    std_durations.get(idx) is not None and std_durations[idx] > 0
+                ) else 0
+                conn.execute(
+                    """UPDATE report_substeps
+                       SET score=?, sequence_error=?, std_duration_ms=?
+                       WHERE report_id=? AND idx=?""",
+                    (score, 1 if idx in sequence_errors else 0,
+                     std_durations.get(idx), report_id, idx)
+                )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
     # evidence 存储 (doc/45 §6, multipart 抓拍图)
     # ------------------------------------------------------------------
     def save_evidence(self, device_id: str, round_start_ms: int,
@@ -637,10 +716,90 @@ class ReportRepo:
         """保存 evidence 抓拍图, 返回存储路径."""
         sub_dir = os.path.join(evidence_dir, device_id, str(round_start_ms))
         os.makedirs(sub_dir, exist_ok=True)
-        file_path = os.path.join(sub_dir, f"sub_{sub}_ts_{ts}.jpg")
+        file_path = os.path.join(sub_dir, f"sub_{sub}_ts_{ts}.bmp")
         with open(file_path, "wb") as f:
             f.write(file_bytes)
         return file_path
+
+    def insert_evidence_meta(self, device_id: str, round_start_ms: int,
+                             sub: int, ts: int, file_path: str,
+                             file_size: int = 0) -> bool:
+        """写入证据元数据（P3）。幂等键 (device_id, round_start_ms, sub, ts)，
+        重复到达 INSERT OR IGNORE 跳过（dev01 §2.3 平台须去重勿拒绝）。
+        Returns: True=新插入, False=幂等命中已存在。"""
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO evidence
+                   (device_id, round_start_ms, sub, ts, file_path, file_size, created_at)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (device_id, round_start_ms, sub, ts, file_path, file_size, self._now_ms())
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def update_evidence_converted(self, evidence_id: int, jpg_path: str,
+                                  thumb_path: str = "") -> bool:
+        """回写 BMP→JPG 转换结果（P3 异步转换完成后调用）。"""
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "UPDATE evidence SET jpg_path=?, thumb_path=? WHERE id=?",
+                (jpg_path, thumb_path, evidence_id)
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def get_evidence_by_id(self, evidence_id: int) -> Optional[Dict[str, Any]]:
+        """按 id 查证据元数据。"""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM evidence WHERE id = ?", (evidence_id,)
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def list_evidence(self, device_id: str, round_start_ms: int = 0,
+                      sub: int = 0, limit: int = 200) -> List[Dict[str, Any]]:
+        """列取证据元数据（按轮次/子步骤可选过滤）。"""
+        where = ["device_id = ?"]
+        params: List[Any] = [device_id]
+        if round_start_ms:
+            where.append("round_start_ms = ?")
+            params.append(round_start_ms)
+        if sub:
+            where.append("sub = ?")
+            params.append(sub)
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""SELECT * FROM evidence WHERE {" AND ".join(where)}
+                    ORDER BY sub, ts LIMIT ?""",
+                params + [limit]
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def list_pending_conversion(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """取待转换证据（BMP 已落盘但 jpg_path 为空）。"""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT * FROM evidence
+                   WHERE jpg_path IS NULL OR jpg_path = ''
+                   ORDER BY created_at LIMIT ?""",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
 
     # ------------------------------------------------------------------
     # 原始 JSON 落盘 (doc/38 §7 完整留存)

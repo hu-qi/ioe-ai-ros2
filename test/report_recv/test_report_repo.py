@@ -30,10 +30,12 @@ def test_six_tables_created():
     repo = make_repo()
     conn = sqlite3.connect(DB)
     tables = sorted(r[0] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"))
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ) if not r[0].startswith("sqlite_"))  # 排除内部表（evidence 表 AUTOINCREMENT 引入 sqlite_sequence）
     conn.close()
     expected = sorted(["report_events", "report_progress", "report_steps",
-                       "report_substeps", "reports", "subscriptions"])
+                       "report_substeps", "reports", "subscriptions",
+                       "evidence"])  # P3: 证据元数据表加入（doc/01 §七）
     assert tables == expected, "六表不符: %s" % tables
 
 

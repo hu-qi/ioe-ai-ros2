@@ -35,7 +35,7 @@ class StudentMgrPlugin(BasePlugin):
 
         self._db_path: str = self.config.get(
             "db_path",
-            os.path.join(os.path.dirname(__file__), "..", "..", "config", "app.db")
+            os.path.join(os.path.dirname(__file__), "..", "config", "app.db")
         )
         schema_path = self.config.get(
             "schema_path",
@@ -147,12 +147,30 @@ class StudentMgrPlugin(BasePlugin):
         # ------------------------------------------------------------ #
         @app.get("/api/v1/students")
         async def list_students(
+            request: Request,
             keyword: str = '',
             cls: str = '',
             status: str = 'active',
             page: int = 1,
             page_size: int = 0
         ):
+            # 端侧同步模式（doc/dev01 §7）：不带 page/page_size/status 参数，
+            # 响应为 {"total": n, "students": [{"tid","name","cls"}]}
+            qp = request.query_params
+            if 'page' not in qp and 'page_size' not in qp and 'status' not in qp:
+                result = repo.list(
+                    keyword=keyword.strip(),
+                    cls=cls.strip(),
+                    status='active',
+                    page=1,
+                    page_size=page_size_max
+                )
+                students = [
+                    {"tid": s.get("id", ""), "name": s.get("name", ""), "cls": s.get("cls", "") or ""}
+                    for s in result.get("list", [])
+                ]
+                return {"code": 0, "message": "ok", "data": {"total": len(students), "students": students}}
+
             ps = page_size if page_size > 0 else page_size_default
             if ps > page_size_max:
                 ps = page_size_max

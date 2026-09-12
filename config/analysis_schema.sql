@@ -33,3 +33,20 @@ CREATE INDEX IF NOT EXISTS idx_cache_dimension  ON analysis_cache(dimension);
 CREATE INDEX IF NOT EXISTS idx_diagnosis_type   ON diagnosis_results(diagnosis_type);
 CREATE INDEX IF NOT EXISTS idx_diagnosis_target ON diagnosis_results(target_id);
 CREATE INDEX IF NOT EXISTS idx_diagnosis_computed ON diagnosis_results(computed_at);
+
+-- ------------------------------------------------------------
+-- teaching_actions — 教学调整事件表 (P5, doc/01 §6.4 / doc/02 §4.4)
+-- 教官记录教学调整 → 平台对比调整前后班级指标 → 改进效果验证
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS teaching_actions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    action_date     INTEGER NOT NULL,          -- 调整日期 (epoch ms)
+    description     TEXT    NOT NULL,          -- 调整内容描述
+    target_substep  INTEGER,                   -- 目标子步骤序号 (可空=全轮)
+    process_name    TEXT    DEFAULT '',        -- 针对工序 (空=通用)
+    class_name      TEXT    NOT NULL,          -- 班级
+    created_at      INTEGER NOT NULL           -- 记录时刻 (epoch ms)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ta_class   ON teaching_actions(class_name);
+CREATE INDEX IF NOT EXISTS idx_ta_process ON teaching_actions(process_name);

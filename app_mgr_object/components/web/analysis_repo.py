@@ -205,6 +205,11 @@ class AnalysisRepo:
             where_parts.append("r.finish_reason = ?")
             params.append(finish_reason)
 
+        process_name = filters.get("process_name", "")
+        if process_name:
+            where_parts.append("r.process_name = ?")
+            params.append(process_name)
+
         # 排除存根报告（统计只算完整报告）
         where_parts.append("r.is_stub = 0")
 
@@ -268,12 +273,15 @@ class AnalysisRepo:
     # 学员累计统计（描述性 + 诊断性）
     # ------------------------------------------------------------------
     def get_student_cumulative_stats(self, student_id: str,
-                                     date_range: Optional[dict] = None) -> dict:
+                                     date_range: Optional[dict] = None,
+                                     process_name: str = '') -> dict:
         """
         学员累计统计：考试次数 / 平均得分 / 完成率趋势 / 薄弱步骤 TOP3
         对应 doc/71 §4.2
         """
         filters: dict = {"student_id": student_id}
+        if process_name:
+            filters["process_name"] = process_name
         if date_range:
             if date_range.get("date_start"):
                 filters["date_start"] = date_range["date_start"]
@@ -361,12 +369,15 @@ class AnalysisRepo:
     # 班级汇总
     # ------------------------------------------------------------------
     def get_class_summary(self, cls: str,
-                          date_range: Optional[dict] = None) -> dict:
+                          date_range: Optional[dict] = None,
+                          process_name: str = '') -> dict:
         """
         班级汇总：全班平均分 / 通过率 / 高频错误点
         对应 doc/71 §4.3
         """
         filters: dict = {"cls": cls}
+        if process_name:
+            filters["process_name"] = process_name
         if date_range:
             if date_range.get("date_start"):
                 filters["date_start"] = date_range["date_start"]
@@ -518,6 +529,230 @@ class AnalysisRepo:
             ).fetchone()
             timeout_count = timeout_row["timeout_count"] if timeout_row else 0
             return round(timeout_count / total, 4)
+        finally:
+            conn.close()
+
+    def get_step_interval_stats(self, step_idx: int, filters: dict) -> dict:
+        """步骤间隔统计: 与下一步的平均间隔均值(ms)。
+        数据源: report_steps.interval_ms（doc/58 v1.1, 本步 start - 上步 end）。"""
+        where_clause, params = self._build_report_filters(filters)
+        params_with_idx = params + [step_idx]
+
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""SELECT AVG(rs.interval_ms) AS avg_interval
+                    FROM report_steps rs
+                    INNER JOIN reports r ON r.report_id = rs.report_id
+                    {where_clause}
+                    AND rs.idx = ? AND rs.interval_ms IS NOT NULL AND rs.interval_ms >= 0""",
+                params_with_idx
+            ).fetchone()
+            return round(row["avg_interval"], 1) if row and row["avg_interval"] is not None else 0.0
+        finally:
+            conn.close()
+
+    def get_step_duration_stddev_stats(self, step_idx: int, filters: dict) -> dict:
+        """步骤用时标准差统计: {avg_ms, stddev_ms}（stddev 维度诊断用）。"""
+        where_clause, params = self._build_report_filters(filters)
+        params_with_idx = params + [step_idx]
+
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"""SELECT AVG(rs.duration_ms) AS avg_ms,
+                           COUNT(rs.duration_ms) AS n
+                    FROM report_steps rs
+                    INNER JOIN reports r ON r.report_id = rs.report_id
+                    {where_clause}
+                    AND rs.idx = ? AND rs.duration_ms IS NOT NULL""",
+                params_with_idx
+            ).fetchone()
+            if not row or not row["avg_ms"] or (row["n"] or 0) < 2:
+                return {"avg_ms": 0.0, "stddev_ms": 0.0, "count": int(row["n"]) if row else 0}
+
+            # SQLite 无内置 STDDEV，样本标准差手工计算（单次连接内完成）
+            rows = conn.execute(
+                f"""SELECT rs.duration_ms FROM report_steps rs
+                    INNER JOIN reports r ON r.report_id = rs.report_id
+                    {where_clause}
+                    AND rs.idx = ? AND rs.duration_ms IS NOT NULL""",
+                params_with_idx
+            ).fetchall()
+            vals = [r["duration_ms"] for r in rows]
+            n = len(vals)
+            avg = sum(vals) / n
+            variance = sum((v - avg) ** 2 for v in vals) / (n - 1)
+            return {"avg_ms": round(avg, 1), "stddev_ms": round(variance ** 0.5, 1), "count": n}
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # 教学调整事件 (P5, doc/01 §6.4 / doc/02 §4.4)
+    # ------------------------------------------------------------------
+    def create_teaching_action(self, action: dict) -> int:
+        """创建教学调整事件，返回 id。必填: action_date/description/class_name。"""
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                """INSERT INTO teaching_actions
+                   (action_date, description, target_substep, process_name,
+                    class_name, created_at)
+                   VALUES (?,?,?,?,?,?)""",
+                (int(action.get("action_date") or self._now_ms()),
+                 str(action.get("description") or ""),
+                 action.get("target_substep"),
+                 str(action.get("process_name") or ""),
+                 str(action.get("class_name") or ""),
+                 self._now_ms())
+            )
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+
+    def get_teaching_action(self, action_id: int) -> Optional[dict]:
+        """按 id 查教学调整事件。"""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM teaching_actions WHERE id = ?", (action_id,)
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def list_teaching_actions(self, class_name: str = '',
+                              process_name: str = '',
+                              limit: int = 50) -> List[dict]:
+        """列取教学调整事件（按时间倒序）。"""
+        where: List[str] = []
+        params: List[Any] = []
+        if class_name:
+            where.append("class_name = ?")
+            params.append(class_name)
+        if process_name:
+            where.append("process_name = ?")
+            params.append(process_name)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"SELECT * FROM teaching_actions{clause} ORDER BY action_date DESC LIMIT ?",
+                params + [limit]
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
+    def verify_teaching_action(self, action_id: int,
+                               pass_threshold: float = 60.0) -> Optional[dict]:
+        """教学改进效果验证（P5, doc/01 §6.4）: 对比调整前后班级指标。
+
+        窗口定义: before = action_date 往前等长 30 天; after = action_date 往后 30 天。
+        对比指标: 平均分 / 完成率 / 通过率 / 报告数；支持按工序过滤。
+        Returns: {action, before, after, delta, trend}；action 不存在返回 None。
+        """
+        action = self.get_teaching_action(action_id)
+        if not action:
+            return None
+
+        action_ms = int(action["action_date"])
+        day = 24 * 3600 * 1000
+        before_range = (action_ms - 30 * day, action_ms)
+        after_range = (action_ms, action_ms + 30 * day)
+
+        where = ["is_stub = 0", "student_cls = ?"]
+        params_base: List[Any] = [action["class_name"]]
+        if action.get("process_name"):
+            where.append("process_name = ?")
+            params_base.append(action["process_name"])
+        where_clause = " AND ".join(where)
+
+        conn = self._connect()
+        try:
+            def _calc(start: int, end: int) -> Optional[dict]:
+                row = conn.execute(
+                    f"""SELECT COUNT(*) AS report_count,
+                               AVG(total_score) AS avg_score,
+                               SUM(CASE WHEN finish_reason = 'completed' THEN 1 ELSE 0 END) AS completed_count,
+                               SUM(CASE WHEN total_score >= ? THEN 1 ELSE 0 END) AS pass_count
+                        FROM reports
+                        WHERE {where_clause} AND ts_upload_ms >= ? AND ts_upload_ms <= ?""",
+                    [pass_threshold] + params_base + [start, end]
+                ).fetchone()
+                if not row or row["report_count"] == 0:
+                    return None
+                total = row["report_count"]
+                completed = row["completed_count"] or 0
+                return {
+                    "avg_score": round(row["avg_score"], 1) if row["avg_score"] is not None else 0,
+                    "completion_rate": round(completed / total, 4),
+                    "pass_rate": round((row["pass_count"] or 0) / total, 4),
+                    "report_count": total,
+                }
+
+            before = _calc(*before_range)
+            after = _calc(*after_range)
+
+            delta = {"avg_score": 0, "completion_rate": 0, "pass_rate": 0}
+            trend = "no_data"
+            if before and after:
+                delta = {
+                    "avg_score": round(after["avg_score"] - before["avg_score"], 1),
+                    "completion_rate": round(after["completion_rate"] - before["completion_rate"], 4),
+                    "pass_rate": round(after["pass_rate"] - before["pass_rate"], 4),
+                }
+                if delta["avg_score"] > 0 and delta["completion_rate"] >= 0:
+                    trend = "improved"
+                elif delta["avg_score"] < 0 and delta["completion_rate"] <= 0:
+                    trend = "declined"
+                else:
+                    trend = "mixed"
+
+            return {
+                "action": action,
+                "before": before,
+                "after": after,
+                "delta": delta,
+                "trend": trend,
+            }
+        finally:
+            conn.close()
+
+    def get_evidence_for_sub(self, sub: int, filters: dict, limit: int = 3) -> List[dict]:
+        """按子步骤序号关联证据图（P4, doc/01 §7.3）。
+
+        关联链: evidence.sub = sub ∧ evidence.device_id = reports.device_id
+                ∧ evidence.round_start_ms = reports.start_ms ∧ reports 过滤条件命中。
+        Returns: [{id, device_id, round_start_ms, sub, ts, jpg_path, thumb_path, has_image}]
+        """
+        where_clause, params = self._build_report_filters(filters)
+
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                f"""SELECT DISTINCT e.id, e.device_id, e.round_start_ms, e.sub, e.ts,
+                           e.jpg_path, e.thumb_path, e.file_path
+                    FROM evidence e
+                    INNER JOIN reports r
+                        ON r.device_id = e.device_id
+                       AND r.start_ms = e.round_start_ms
+                    {where_clause}
+                    AND e.sub = ?
+                    ORDER BY e.ts DESC LIMIT ?""",
+                params + [sub, limit]
+            ).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["has_image"] = bool(
+                    (d.get("jpg_path") and os.path.exists(d["jpg_path"]))
+                    or (d.get("thumb_path") and os.path.exists(d["thumb_path"]))
+                    or (d.get("file_path") and os.path.exists(d["file_path"]))
+                )
+                out.append(d)
+            return out
         finally:
             conn.close()
 

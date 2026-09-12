@@ -1,0 +1,59 @@
+# ============================================================
+# scoring_rules.yaml — 单轮评分规则配置（doc/01 §八、doc/02 §5.2）
+# 工程基线: app_mgr_object-0.2.1+
+#
+# 评分模型（纯四系数，得分直接累加，不重复乘权重）:
+#   子步骤得分 = max_score × 用时系数 × 正确性系数 × 顺序系数
+#     用时系数   = min(1.0, std_duration_ms / actual_duration_ms)
+#     正确性系数 = 完成=1.0 / 中断=0.5 / 未执行=0（state: 0未执行 1进行中 2完成 3中断）
+#     顺序系数   = 顺序正确=1.0 / 顺序错误=0.7
+#   超时子步骤再乘 timeout_penalty
+#   整轮: 总分 - 未执行数×unexecuted_deduct - 重复次数×repeat_deduct
+#         轮次超时(finish_reason=timeout) 总分×timeout_total_multiplier
+#
+# 按工序分组: processes[].name 对应 round.process_name（如"拆解"/"组装"）；
+# 命中顺序: 工序专属 substeps → default（通用），缺失则该子步骤跳过评分。
+# 修改后调用 POST /api/v1/config/reload 热重载（无需重启）。
+# ============================================================
+
+version: "1.0"
+
+# 通用默认（工序专属规则缺失时回退）
+default:
+  max_score: 10.0            # 每个子步骤基础分
+  timeout_penalty: 0.5       # 子步骤超时额外扣分系数
+  grade_levels:              # 总分 → 等级（从高到低匹配 min）
+    - {min: 90, level: "优秀"}
+    - {min: 75, level: "良好"}
+    - {min: 60, level: "合格"}
+    - {min: 0,  level: "不合格"}
+
+# 整轮扣分规则
+global_penalties:
+  unexecuted_deduct: 2       # 每个未执行子步骤扣 2 分
+  repeat_deduct: 1           # 每次重复操作（count>1 部分）扣 1 分
+  timeout_total_multiplier: 0.9   # 轮次超时总分乘 0.9
+
+# 工序专属子步骤标准（std_duration_ms 为 SOP 标准用时）
+processes:
+  - name: "拆解"
+    substeps:
+      - {index: 1, std_duration_ms: 12000, max_score: 10}
+      - {index: 2, std_duration_ms: 8000,  max_score: 10}
+      - {index: 3, std_duration_ms: 15000, max_score: 10}
+      - {index: 4, std_duration_ms: 10000, max_score: 10}
+      - {index: 5, std_duration_ms: 9000,  max_score: 10}
+      - {index: 6, std_duration_ms: 12000, max_score: 10}
+      - {index: 7, std_duration_ms: 14000, max_score: 10}
+      - {index: 8, std_duration_ms: 11000, max_score: 10}
+
+  - name: "组装"
+    substeps:
+      - {index: 1, std_duration_ms: 15000, max_score: 12}
+      - {index: 2, std_duration_ms: 10000, max_score: 8}
+      - {index: 3, std_duration_ms: 9000,  max_score: 10}
+      - {index: 4, std_duration_ms: 12000, max_score: 10}
+      - {index: 5, std_duration_ms: 13000, max_score: 10}
+      - {index: 6, std_duration_ms: 11000, max_score: 10}
+      - {index: 7, std_duration_ms: 10000, max_score: 10}
+      - {index: 8, std_duration_ms: 12000, max_score: 10}

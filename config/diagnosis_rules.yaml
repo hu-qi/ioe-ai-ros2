@@ -1,0 +1,83 @@
+version: '1.0'
+processes:
+- name: 拆解
+  rules:
+  - type: bottleneck
+    substep_index: null
+    threshold: 1.5
+    enabled: true
+    suggestion: 拆解该步骤平均用时过长，建议下次课重点讲解
+  - type: error
+    substep_index: null
+    threshold: 0.3
+    enabled: true
+    suggestion: 拆解该步骤遗漏率高，需增加专项训练
+  - type: sequence
+    substep_index: null
+    threshold: 0.2
+    enabled: true
+    suggestion: 拆解该步骤顺序混乱，需强调步骤间依赖关系
+  - type: interval
+    substep_index: null
+    threshold: 5000
+    enabled: true
+    suggestion: 拆解该步骤与下一步衔接卡壳，需明确操作逻辑
+  - type: stddev
+    substep_index: null
+    threshold: 0.5
+    enabled: true
+    suggestion: 拆解该步骤学员用时差异大，建议分享经验统一手法
+- name: 组装
+  rules:
+  - type: bottleneck
+    substep_index: null
+    threshold: 1.3
+    enabled: true
+    suggestion: 组装该步骤平均用时过长，建议下次课重点讲解
+  - type: error
+    substep_index: null
+    threshold: 0.3
+    enabled: true
+    suggestion: 组装该步骤遗漏率高，需增加专项训练
+  - type: sequence
+    substep_index: null
+    threshold: 0.2
+    enabled: true
+    suggestion: 组装该步骤顺序混乱，需强调步骤间依赖关系
+  - type: interval
+    substep_index: null
+    threshold: 5000
+    enabled: true
+    suggestion: 组装该步骤与下一步衔接卡壳，需明确操作逻辑
+  - type: stddev
+    substep_index: null
+    threshold: 0.5
+    enabled: true
+    suggestion: 组装该步骤学员用时差异大，建议分享经验统一手法
+common_rules:
+- type: bottleneck
+  threshold: 1.5
+  enabled: true
+  suggestion: 该步骤需在下次课重点讲解
+- type: error
+  threshold: 0.3
+  enabled: true
+  suggestion: 需增加该步骤的专项训练
+- type: sequence
+  threshold: 0.2
+  enabled: true
+  suggestion: 需强调步骤间的依赖关系
+- type: interval
+  threshold: 5000
+  enabled: true
+  suggestion: 该步骤与下一步衔接卡壳，需明确操作逻辑
+- type: stddev
+  threshold: 0.5
+  enabled: true
+  suggestion: 该步骤学员用时差异大，建议分享经验统一手法
+- type: regression
+  window_recent: 3
+  window_history: 5
+  threshold: 0.85
+  enabled: true
+  suggestion: 学员近期成绩退步，建议安排个别辅导
