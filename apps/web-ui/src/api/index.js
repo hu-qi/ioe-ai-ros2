@@ -51,6 +51,10 @@ export const api = {
   classSummary(params) { return http.get('/analysis/class_summary', { params }) },
   stepDuration(params) { return http.get('/analysis/step_duration', { params }) },
   studentCumulative(params) { return http.get('/analysis/student_cumulative', { params }) },
+  // 诊断结果列表（入库查询）
+  listDiagnoses(params) { return http.get('/analysis/diagnoses', { params }) },
+  // 教学改进验证（前后窗口对比）
+  improvementValidation(params) { return http.get('/dashboard/improvement_validation', { params }) },
   // 看板（P6）
   todaySummary(params) { return http.get('/dashboard/today_summary', { params }) },
   topErrorPoints(params) { return http.get('/dashboard/top_error_points', { params }) },

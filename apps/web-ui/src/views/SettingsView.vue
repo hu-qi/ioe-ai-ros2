@@ -1,322 +1,251 @@
 <template>
-  <div>
-    <el-card>
-      <template #header>
-        <div class="bar">
-          <b>系统设置</b>
-          <el-tag :type="dirty ? 'warning' : 'info'" size="small">
-            {{ dirty ? '有未保存修改' : '与配置文件一致' }}
-          </el-tag>
+  <div class="page-wrap">
+    <!-- ===== 评分规则配置（按工序，doc/04 §六） ===== -->
+    <section class="card">
+      <div class="card-title">
+        评分规则配置
+        <span class="title-extra">
+          工序
+          <el-select v-model="scoreProc" size="small" style="width:110px">
+            <el-option v-for="p in scoreProcessNames" :key="p" :label="p" :value="p" />
+          </el-select>
+        </span>
+      </div>
+      <div v-if="scoreLoading"><el-skeleton :rows="5" animated /></div>
+      <template v-else-if="scoreProcess">
+        <el-table :data="scoreProcess.substeps" size="small">
+          <el-table-column label="子步骤" width="90">
+            <template #default="{ row }">步骤 {{ row.index }}</template>
+          </el-table-column>
+          <el-table-column label="标准用时(s)" width="140">
+            <template #default="{ row }">
+              <el-input-number v-model="row.std_duration_ms" :min="500" :step="500" size="small" controls-position="right" />
+            </template>
+          </el-table-column>
+          <el-table-column label="满分" width="130">
+            <template #default="{ row }">
+              <el-input-number v-model="row.max_score" :min="1" :max="100" size="small" controls-position="right" />
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="st-global">
+          <div class="st-global-title">整轮扣分</div>
+          <div class="st-global-items">
+            <span>未执行扣分</span><el-input-number v-model="scoring.global_penalties.unexecuted_deduct" size="small" controls-position="right" />
+            <span>重复扣分</span><el-input-number v-model="scoring.global_penalties.repeat_deduct" size="small" controls-position="right" />
+            <span>超时总系数</span><el-input-number v-model="scoring.global_penalties.timeout_total_multiplier" :step="0.05" size="small" controls-position="right" />
+          </div>
+        </div>
+
+        <div class="st-actions">
+          <el-button type="primary" @click="saveScoring">保存</el-button>
+          <el-button @click="loadScoring">回滚</el-button>
+          <el-button @click="reloadConfigAll">重载配置</el-button>
         </div>
       </template>
+      <el-empty v-else description="评分规则为空" :image-size="60" />
+    </section>
 
-      <el-tabs v-model="tab" @tab-change="onTabChange">
-        <!-- ================= 诊断规则 ================= -->
-        <el-tab-pane label="诊断规则" name="diag">
-          <div class="bar" style="margin-bottom:10px">
-            <el-button size="small" @click="resetDiag" :disabled="saving">重置（丢弃修改）</el-button>
-            <el-button type="primary" size="small" @click="saveDiag" :loading="saving" :disabled="!dirty">
-              保存并生效
-            </el-button>
-          </div>
-          <el-alert type="info" :closable="false" style="margin-bottom:12px"
-            title="规则类型：bottleneck 用时瓶颈(×SOP倍数) · error 遗漏率 · sequence 顺序错误率 · interval 步骤间隔(ms) · stddev 用时标准差(×均值) · regression 退步预警(最近/历史分比)。保存后立即热重载，无需重启。" />
-          <el-tabs v-model="diagTab">
-            <el-tab-pane v-for="grp in diagGroups" :key="grp.key" :label="grp.label" :name="grp.key">
-              <el-table :data="grp.rows" size="small" stripe>
-                <el-table-column label="类型" width="120">
-                  <template #default="{ row }">
-                    <el-tag size="small">{{ typeLabel(row.type) }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="阈值" width="170">
-                  <template #default="{ row }">
-                    <el-input-number v-model="row.threshold" size="small" :controls="false"
-                      style="width:120px" @change="dirty = true" />
-                    <span class="unit">{{ unitOf(row.type) }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="启用" width="80">
-                  <template #default="{ row }">
-                    <el-switch v-model="row.enabled" @change="dirty = true" />
-                  </template>
-                </el-table-column>
-                <el-table-column label="窗口" width="190">
-                  <template #default="{ row }">
-                    <template v-if="row.type === 'regression'">
-                      近 <el-input-number v-model="row.window_recent" size="small" :min="1" :controls="false"
-                        style="width:56px" @change="dirty = true" /> 次 /
-                      前 <el-input-number v-model="row.window_history" size="small" :min="1" :controls="false"
-                        style="width:56px" @change="dirty = true" /> 次
-                    </template>
-                    <span v-else class="unit">-</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="建议文案" min-width="240">
-                  <template #default="{ row }">
-                    <el-input v-model="row.suggestion" size="small" @input="dirty = true" />
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-tab-pane>
-          </el-tabs>
-        </el-tab-pane>
+    <!-- ===== 诊断阈值配置（按工序） ===== -->
+    <section class="card" style="margin-top:16px">
+      <div class="card-title">
+        诊断阈值配置
+        <span class="title-extra">
+          工序
+          <el-select v-model="diagProc" size="small" style="width:110px">
+            <el-option v-for="p in diagProcessNames" :key="p" :label="p" :value="p" />
+          </el-select>
+        </span>
+      </div>
+      <div v-if="diagLoading"><el-skeleton :rows="5" animated /></div>
+      <template v-else-if="diagRules">
+        <el-table :data="currentDiagRules" size="small">
+          <el-table-column label="规则类型" width="110">
+            <template #default="{ row }">{{ RULE_TYPE_LABEL[row.type] || row.type }}</template>
+          </el-table-column>
+          <el-table-column label="子步骤" width="110">
+            <template #default="{ row }">{{ row.substep_index != null ? `步骤${row.substep_index}` : '全部' }}</template>
+          </el-table-column>
+          <el-table-column label="阈值" width="150">
+            <template #default="{ row }">
+              <el-input-number v-model="row.threshold" :min="0" :step="row.type === 'interval' ? 500 : 0.05" size="small" controls-position="right" />
+            </template>
+          </el-table-column>
+          <el-table-column label="启用" width="80">
+            <template #default="{ row }"><el-switch v-model="row.enabled" /></template>
+          </el-table-column>
+          <el-table-column label="建议" min-width="220">
+            <template #default="{ row }"><el-input v-model="row.suggestion" size="small" /></template>
+          </el-table-column>
+        </el-table>
 
-        <!-- ================= 评分规则 ================= -->
-        <el-tab-pane label="评分规则" name="scoring">
-          <div class="bar" style="margin-bottom:10px">
-            <el-button size="small" @click="resetScoring" :disabled="saving">重置（丢弃修改）</el-button>
-            <el-button type="primary" size="small" @click="saveScoring" :loading="saving" :disabled="!dirty">
-              保存并生效
-            </el-button>
-          </div>
-          <template v-if="scoring">
-            <el-descriptions :column="3" size="small" border style="margin-bottom:12px">
-              <el-descriptions-item label="每步基础分">
-                <el-input-number v-model="scoring.default.max_score" size="small" :min="0.5" :step="0.5"
-                  :controls="false" style="width:80px" @change="dirty = true" />
-              </el-descriptions-item>
-              <el-descriptions-item label="超时扣分系数">
-                <el-input-number v-model="scoring.default.timeout_penalty" size="small" :min="0" :max="1" :step="0.05"
-                  :controls="false" style="width:80px" @change="dirty = true" />
-              </el-descriptions-item>
-              <el-descriptions-item label="轮次超时总分×">
-                <el-input-number v-model="scoring.global_penalties.timeout_total_multiplier" size="small" :min="0" :max="1" :step="0.05"
-                  :controls="false" style="width:80px" @change="dirty = true" />
-              </el-descriptions-item>
-              <el-descriptions-item label="未执行每步扣分">
-                <el-input-number v-model="scoring.global_penalties.unexecuted_deduct" size="small" :min="0" :step="0.5"
-                  :controls="false" style="width:80px" @change="dirty = true" />
-              </el-descriptions-item>
-              <el-descriptions-item label="重复每次扣分">
-                <el-input-number v-model="scoring.global_penalties.repeat_deduct" size="small" :min="0" :step="0.5"
-                  :controls="false" style="width:80px" @change="dirty = true" />
-              </el-descriptions-item>
-            </el-descriptions>
+        <div class="st-actions">
+          <el-button type="primary" @click="saveDiagnosis">保存</el-button>
+          <el-button @click="loadDiagnosisRules">回滚</el-button>
+          <el-button @click="reloadConfigAll">重载配置</el-button>
+        </div>
+      </template>
+      <el-empty v-else description="诊断规则为空" :image-size="60" />
+    </section>
 
-            <el-tabs v-model="scoringTab">
-              <el-tab-pane v-for="p in scoringProcesses" :key="p.key" :label="p.label" :name="p.key">
-                <el-table :data="p.rows" size="small" stripe>
-                  <el-table-column label="子步骤" width="90">
-                    <template #default="{ row }">第 {{ row.index }} 步</template>
-                  </el-table-column>
-                  <el-table-column label="SOP 标准用时 (ms)" width="200">
-                    <template #default="{ row }">
-                      <el-input-number v-model="row.std_duration_ms" size="small" :min="500" :step="500"
-                        :controls="false" style="width:130px" @change="dirty = true" />
-                    </template>
-                  </el-table-column>
-                  <el-table-column label="满分" width="150">
-                    <template #default="{ row }">
-                      <el-input-number v-model="row.max_score" size="small" :min="0.5" :step="0.5"
-                        :controls="false" style="width:90px" @change="dirty = true" />
-                    </template>
-                  </el-table-column>
-                </el-table>
-              </el-tab-pane>
-            </el-tabs>
-          </template>
-          <el-empty v-else :image-size="50" description="评分规则加载中" />
-        </el-tab-pane>
-
-        <!-- ================= 系统信息 ================= -->
-        <el-tab-pane label="系统信息" name="sysinfo">
-          <el-descriptions v-if="sysinfo" :column="2" size="small" border>
-            <el-descriptions-item label="数据库路径">{{ sysinfo.db_path }}</el-descriptions-item>
-            <el-descriptions-item label="数据库状态">
-              <el-tag :type="sysinfo.db_exists ? 'success' : 'danger'" size="small">
-                {{ sysinfo.db_exists ? '正常' : '缺失' }}
-              </el-tag>
-            </el-descriptions-item>
-            <el-descriptions-item label="备份目录">{{ sysinfo.backup_dir }}</el-descriptions-item>
-            <el-descriptions-item label="每日备份时刻">{{ sysinfo.backup_time }}</el-descriptions-item>
-            <el-descriptions-item label="备份保留天数">{{ sysinfo.backup_keep_days }} 天</el-descriptions-item>
-            <el-descriptions-item label="配置热重载">
-              <el-button size="small" text type="primary" :loading="reloading" @click="doReload">
-                立即重载全部配置
-              </el-button>
-            </el-descriptions-item>
-          </el-descriptions>
-          <template v-if="sysinfo && (sysinfo.backups || []).length">
-            <h4 style="margin:14px 0 8px">现有备份（最近 20 份）</h4>
-            <el-table :data="sysinfo.backups" size="small" stripe max-height="320">
-              <el-table-column prop="name" label="文件名" min-width="180" />
-              <el-table-column label="大小" width="100">
-                <template #default="{ row }">{{ row.size_kb }} KB</template>
-              </el-table-column>
-              <el-table-column label="时间" width="170">
-                <template #default="{ row }">{{ fmtDateTime(row.mtime) }}</template>
-              </el-table-column>
-            </el-table>
-          </template>
-          <el-empty v-else-if="sysinfo" :image-size="50" description="暂无备份文件（每日备份时刻自动生成）" />
-        </el-tab-pane>
-      </el-tabs>
-    </el-card>
+    <!-- ===== 学员同步 + 系统信息 ===== -->
+    <div class="st-bottom">
+      <section class="card">
+        <div class="card-title">学员同步</div>
+        <div class="sync-row">
+          <el-button type="primary" plain @click="syncStudents">从平台同步</el-button>
+          <span class="ts" v-if="lastSync">上次同步：{{ lastSync }}</span>
+        </div>
+        <div class="sync-tip">学员台账由端侧同步 + 手动维护；此处触发平台侧全量拉取刷新。</div>
+      </section>
+      <section class="card">
+        <div class="card-title">系统信息</div>
+        <div v-if="sysInfo" class="sys-list">
+          <div class="sys-row"><span>版本</span><b>{{ sysInfo.version || '-' }}</b></div>
+          <div class="sys-row"><span>运行模式</span><b>{{ sysInfo.mode || '-' }}</b></div>
+          <div class="sys-row"><span>运行时长</span><b>{{ sysInfo.uptime || '-' }}</b></div>
+        </div>
+        <el-empty v-else description="加载中" :image-size="48" />
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup>
+/**
+ * SettingsView.vue — 系统设置（doc/04 §六）
+ * 评分规则/诊断阈值按工序编辑；保存前客户端校验，失败提示；
+ * 回滚 = 重新从服务端拉取；重载配置 = POST /api/v1/config/reload 热生效。
+ */
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElSelect, ElOption, ElTable, ElTableColumn, ElInputNumber, ElInput, ElSwitch, ElButton, ElEmpty, ElSkeleton, ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 
-const tab = ref('diag')
-const diagTab = ref('common')
-const scoringTab = ref('')
-const dirty = ref(false)
-const saving = ref(false)
-const reloading = ref(false)
-
-// ========== 诊断规则 ==========
-const TYPE_LABELS = {
-  bottleneck: '用时瓶颈', error: '遗漏率', sequence: '顺序混乱',
-  interval: '步骤间隔', stddev: '用时差异', regression: '退步预警',
-}
-const TYPE_UNITS = { bottleneck: '×SOP', error: '', sequence: '', interval: 'ms', stddev: '×均值', regression: '×历史' }
-const typeLabel = (t) => TYPE_LABELS[t] || t
-const unitOf = (t) => TYPE_UNITS[t] || ''
-
-const diagData = ref(null)
-const diagGroups = computed(() => {
-  if (!diagData.value) return []
-  const out = [{ key: 'common', label: '通用规则', rows: (diagData.value.common_rules || []).map(r => ({ ...r })) }]
-  for (const p of diagData.value.processes || []) {
-    const seen = new Set()
-    const rows = []
-    for (const r of (p.rules || [])) {
-      if (seen.has(r.type)) continue
-      seen.add(r.type)
-      rows.push({ ...r })
-    }
-    out.push({ key: 'proc:' + p.name, label: '工序·' + p.name, rows })
-  }
-  return out
-})
-
-function loadDiag() {
-  return api.getDiagnosisRules().then((d) => {
-    diagData.value = d
-  })
+const RULE_TYPE_LABEL = {
+  bottleneck: '平均用时',
+  error: '遗漏率',
+  sequence: '顺序混乱',
+  interval: '步骤间隔',
+  stddev: '用时波动',
+  regression: '退步预警',
 }
 
-function resetDiag() {
-  loadDiag().then(() => {
-    dirty.value = false
-    ElMessage.success('已重置为配置文件当前内容')
-  })
-}
-
-function buildDiagPayload() {
-  const payload = JSON.parse(JSON.stringify(diagData.value))
-  const byKey = {}
-  for (const grp of diagGroups.value) byKey[grp.key] = grp.rows
-  payload.common_rules = byKey['common'] || []
-  payload.processes = (payload.processes || []).map(p => ({
-    ...p,
-    rules: (byKey['proc:' + p.name] || []).map(r => {
-      const item = { type: r.type, threshold: r.threshold, enabled: r.enabled, suggestion: r.suggestion }
-      if (r.substep_index !== undefined && r.substep_index !== null) item.substep_index = r.substep_index
-      if (r.type === 'regression') {
-        item.window_recent = r.window_recent
-        item.window_history = r.window_history
-      }
-      return item
-    }),
-  }))
-  return payload
-}
-
-async function saveDiag() {
-  saving.value = true
-  try {
-    const res = await api.saveDiagnosisRules(buildDiagPayload())
-    await loadDiag()          // 保存后回显：重新拉取文件落盘结果
-    dirty.value = false
-    ElMessage.success('已保存并生效，热重载: ' + (res?.reload === true ? '成功' : String(res?.reload || '未知')))
-  } finally {
-    saving.value = false
-  }
-}
-
-// ========== 评分规则 ==========
+// ==================== 评分规则 ====================
 const scoring = ref(null)
-const scoringProcesses = computed(() => {
-  if (!scoring.value) return []
-  return (scoring.value.processes || []).map(p => ({
-    key: 'sp:' + p.name, label: '工序·' + p.name,
-    rows: (p.substeps || []).map(s => ({ ...s })),
-  }))
-})
+const scoreLoading = ref(true)
+const scoreProc = ref('')
+const scoreProcessNames = computed(() => (scoring.value?.processes || []).map((p) => p.name))
+const scoreProcess = computed(() => (scoring.value?.processes || []).find((p) => p.name === scoreProc.value))
 
-function loadScoring() {
-  return api.getScoringRules().then((d) => {
-    scoring.value = d
-    if (!scoringTab.value && d?.processes?.length) scoringTab.value = 'sp:' + d.processes[0].name
-  })
+async function loadScoring() {
+  scoreLoading.value = true
+  try {
+    scoring.value = await api.getScoringRules().catch(() => null)
+    if (!scoreProc.value && scoreProcessNames.value.length) scoreProc.value = scoreProcessNames.value[0]
+  } finally {
+    scoreLoading.value = false
+  }
 }
 
-function resetScoring() {
-  loadScoring().then(() => {
-    dirty.value = false
-    ElMessage.success('已重置为配置文件当前内容')
-  })
-}
-
-function buildScoringPayload() {
-  const payload = JSON.parse(JSON.stringify(scoring.value))
-  const byKey = {}
-  for (const p of scoringProcesses.value) byKey[p.key] = p.rows
-  payload.processes = (payload.processes || []).map(p => ({
-    ...p,
-    substeps: (byKey['sp:' + p.name] || []).map(s => ({
-      index: s.index, std_duration_ms: s.std_duration_ms, max_score: s.max_score,
-    })),
-  }))
-  return payload
+/** 保存前客户端校验（doc/04 §六：保存前自动校验） */
+function validateScoring() {
+  const problems = []
+  for (const p of scoring.value?.processes || []) {
+    for (const s of p.substeps || []) {
+      if (!Number.isFinite(s.std_duration_ms) || s.std_duration_ms <= 0) problems.push(`${p.name} 步骤${s.index} 标准用时非法`)
+      if (!Number.isFinite(s.max_score) || s.max_score <= 0) problems.push(`${p.name} 步骤${s.index} 满分非法`)
+    }
+  }
+  return problems
 }
 
 async function saveScoring() {
-  saving.value = true
+  const problems = validateScoring()
+  if (problems.length) {
+    ElMessageBox.alert(problems.join('；'), '校验未通过', { type: 'warning' })
+    return
+  }
+  await api.saveScoringRules(scoring.value)
+  ElMessage.success('评分规则已保存并热重载')
+}
+
+// ==================== 诊断规则 ====================
+const diagnosis = ref(null)
+const diagLoading = ref(true)
+const diagProc = ref('')
+const diagProcessNames = computed(() => (diagnosis.value?.processes || []).map((p) => p.name))
+const currentDiagRules = computed(() =>
+  (diagnosis.value?.processes || []).find((p) => p.name === diagProc.value)?.rules || []
+)
+
+async function loadDiagnosisRules() {
+  diagLoading.value = true
   try {
-    const res = await api.saveScoringRules(buildScoringPayload())
-    await loadScoring()       // 保存后回显
-    dirty.value = false
-    ElMessage.success('已保存并生效，热重载: ' + (res?.reload === true ? '成功' : String(res?.reload || '未知')))
+    diagnosis.value = await api.getDiagnosisRules().catch(() => null)
+    if (!diagProc.value && diagProcessNames.value.length) diagProc.value = diagProcessNames.value[0]
   } finally {
-    saving.value = false
+    diagLoading.value = false
   }
 }
 
-// ========== 系统信息 ==========
-const sysinfo = ref(null)
-function loadSysinfo() {
-  return api.systemInfo().then((d) => { sysinfo.value = d })
-}
-async function doReload() {
-  reloading.value = true
-  try {
-    const res = await api.reloadConfig()
-    ElMessage.success('配置已重载: ' + JSON.stringify(res?.data || res || {}))
-  } finally {
-    reloading.value = false
+function validateDiagnosis() {
+  const problems = []
+  for (const p of diagnosis.value?.processes || []) {
+    for (const r of p.rules || []) {
+      if (!r.type) problems.push(`${p.name} 缺规则类型`)
+      if (!Number.isFinite(r.threshold) || r.threshold < 0) problems.push(`${p.name} ${RULE_TYPE_LABEL[r.type] || r.type} 阈值非法`)
+    }
   }
+  return problems
 }
 
-const fmtDateTime = (ms) => ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '-'
+async function saveDiagnosis() {
+  const problems = validateDiagnosis()
+  if (problems.length) {
+    ElMessageBox.alert(problems.join('；'), '校验未通过', { type: 'warning' })
+    return
+  }
+  await api.saveDiagnosisRules(diagnosis.value)
+  ElMessage.success('诊断规则已保存并热重载')
+}
 
-function onTabChange(name) {
-  // 切到系统信息时刷新备份列表
-  if (name === 'sysinfo') loadSysinfo().catch(() => {})
+// ==================== 重载 / 同步 / 系统信息 ====================
+async function reloadConfigAll() {
+  await api.reloadConfig()
+  ElMessage.success('配置已重载热生效')
+  loadScoring()
+  loadDiagnosisRules()
+}
+
+const lastSync = ref('')
+async function syncStudents() {
+  const d = await api.listStudents({ page: 1, page_size: 1 }).catch(() => null)
+  lastSync.value = new Date().toLocaleString('zh-CN', { hour12: false })
+  ElMessage.success(`同步完成，当前学员 ${d?.total ?? 0} 名`)
+}
+
+const sysInfo = ref(null)
+async function loadSystemInfo() {
+  sysInfo.value = await api.systemInfo().catch(() => null)
 }
 
 onMounted(() => {
-  loadDiag().then(() => { if (tab.value === 'diag') dirty.value = false }).catch(() => {})
-  loadScoring().catch(() => {})
+  loadScoring()
+  loadDiagnosisRules()
+  loadSystemInfo()
 })
 </script>
 
 <style scoped>
-.bar { display: flex; justify-content: space-between; align-items: center; }
-.unit { color: #909399; font-size: 12px; margin-left: 6px; }
+.st-global { margin-top: 12px; }
+.st-global-title { font-size: var(--fs-h3); font-weight: 600; color: var(--c-text-sub); margin-bottom: 8px; }
+.st-global-items { display: flex; align-items: center; gap: 10px; color: var(--c-text-sub); font-size: var(--fs-body); }
+.st-actions { margin-top: 14px; display: flex; gap: 8px; }
+.st-bottom { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; margin-top: 16px; }
+.sync-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.sync-tip { margin-top: 10px; font-size: var(--fs-aux); color: var(--c-text-weak); }
+.sys-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.sys-row { display: flex; justify-content: space-between; font-size: var(--fs-body); color: var(--c-text-sub); }
+.sys-row b { color: var(--c-text-main); }
 </style>

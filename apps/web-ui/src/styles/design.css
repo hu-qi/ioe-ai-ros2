@@ -1,0 +1,103 @@
+/* ============================================================
+ * design.css — 设计规范变量与基础样式（doc/05.1 视觉与交互规范）
+ * 色彩/字号/布局变量统一出口，组件内通过 var(--*) 引用。
+ * ============================================================ */
+:root {
+  /* 主色板 */
+  --c-primary: #2B5CE6;
+  --c-primary-light: #E8EFFF;
+  --c-accent: #F5A623;
+  --c-success: #27AE60;
+  --c-warning: #E67E22;
+  --c-danger: #E74C3C;
+
+  /* 中性色 */
+  --c-text-main: #1F2D3D;
+  --c-text-sub: #5A6B7F;
+  --c-text-weak: #8A9AAE;
+  --c-bg: #F5F7FA;
+  --c-card: #FFFFFF;
+  --c-divider: #E4E8EE;
+
+  /* 字号层级（px/行高） */
+  --fs-h1: 20px;   --lh-h1: 28px;
+  --fs-h2: 16px;   --lh-h2: 24px;
+  --fs-h3: 14px;   --lh-h3: 22px;
+  --fs-body: 14px; --lh-body: 22px;
+  --fs-aux: 12px;  --lh-aux: 18px;
+  --fs-num: 28px;  --lh-num: 36px;
+  --fs-num2: 20px; --lh-num2: 28px;
+
+  /* 布局 */
+  --nav-h: 56px;
+  --content-max: 1600px;
+  --radius: 8px;
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.10);
+
+  /* 状态色变量（Element Plus 覆写用） */
+  --el-color-primary: #2B5CE6;
+  --el-border-radius-base: 6px;
+}
+
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--fs-body);
+  color: var(--c-text-main);
+  background: var(--c-bg);
+}
+
+/* ===== 通用卡片 ===== */
+.card {
+  background: var(--c-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 16px 20px;
+  box-sizing: border-box;
+}
+.card-title {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  line-height: var(--lh-h2);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title .title-extra { margin-left: auto; font-size: var(--fs-aux); color: var(--c-text-weak); display: flex; align-items: center; gap: 8px; }
+
+/* 悬停浮起卡片（可点击卡片用） */
+.card.hoverable { cursor: pointer; transition: box-shadow .2s, transform .15s; }
+.card.hoverable:hover { box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+
+/* ===== 通用链接 ===== */
+.link { color: var(--c-primary); cursor: pointer; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+
+/* ===== 等宽时间戳 ===== */
+.ts { font-family: "JetBrains Mono", Consolas, Menlo, monospace; font-size: var(--fs-aux); color: var(--c-text-weak); }
+
+/* ===== 表格统一（Element Plus 覆写） ===== */
+.el-table { --el-table-row-hover-bg-color: #F5F7FA; }
+.el-table th.el-table__cell { background: #F5F7FA; color: var(--c-text-sub); font-size: 12px; font-weight: 500; }
+
+/* 数字右对齐列 */
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ===== 骨架屏辅助 ===== */
+.skel-line { background: linear-gradient(90deg, #EEF1F5 25%, #E4E8EE 50%, #EEF1F5 75%);
+  background-size: 200% 100%; animation: skel 1.2s infinite; border-radius: 4px; }
+@keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* ===== 呼吸圆点（实时状态） ===== */
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-success); display: inline-block; }
+.live-dot.on { animation: breath 2s ease-in-out infinite; }
+.live-dot.off { background: var(--c-text-weak); animation: none; }
+@keyframes breath { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* ===== 内容区（最大 1600 居中，左右 24px） ===== */
+.page-wrap { max-width: var(--content-max); margin: 0 auto; padding: 20px 24px 32px; }
+
+/* 空态紧凑化 */
+.el-empty { --el-empty-padding: 24px 0; }

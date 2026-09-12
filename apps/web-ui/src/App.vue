@@ -1,97 +1,131 @@
 <template>
   <el-config-provider :locale="zhCn">
-    <!-- 数据大屏（根路由）：全屏渲染，无侧边栏 -->
-    <router-view v-if="isScreen" />
-    <el-container v-else class="app-shell">
-      <el-aside width="200px" class="app-aside">
-        <div class="app-logo">AI 教学分析</div>
-        <el-menu :default-active="$route.path" router class="app-menu">
-          <el-menu-item index="/"><el-icon><Monitor /></el-icon>数据大屏</el-menu-item>
-          <el-menu-item index="/students"><el-icon><User /></el-icon>学员管理</el-menu-item>
-          <el-menu-item index="/reports"><el-icon><Document /></el-icon>报告管理</el-menu-item>
-          <el-menu-item index="/diagnosis"><el-icon><FirstAidKit /></el-icon>诊断中心</el-menu-item>
-          <el-menu-item index="/teaching"><el-icon><Notebook /></el-icon>教学闭环</el-menu-item>
-          <el-menu-item index="/dashboard"><el-icon><DataBoard /></el-icon>教学分析</el-menu-item>
-          <el-menu-item index="/settings"><el-icon><Setting /></el-icon>系统设置</el-menu-item>
-        </el-menu>
-      </el-aside>
-      <el-main class="app-main">
+    <div class="app-shell">
+      <!-- 顶部导航（56px 固定，doc/05.1 §5.1） -->
+      <header class="top-nav">
+        <div class="nav-left">
+          <div class="nav-logo" @click="go('/')">
+            <span class="logo-dot"></span>AI 智能教学分析平台
+          </div>
+          <nav class="nav-menu">
+            <span class="nav-item" :class="{ active: isActive('/') }" @click="go('/')">首页</span>
+            <span class="nav-item" :class="{ active: isActive('/students') }" @click="go('/students')">学员</span>
+            <span class="nav-item" :class="{ active: isActive('/reports') }" @click="go('/reports')">报告</span>
+          </nav>
+        </div>
+        <div class="nav-right">
+          <!-- 全局工序筛选（doc/04 §一：所有界面支持工序筛选） -->
+          <el-select
+            :model-value="ws.process"
+            class="proc-select"
+            size="small"
+            placeholder="工序：全部"
+            @change="ws.setProcess"
+          >
+            <el-option label="工序：全部" value="" />
+            <el-option v-for="p in PROCESS_OPTIONS" :key="p" :label="'工序：' + p" :value="p" />
+          </el-select>
+          <el-tooltip content="系统设置" placement="bottom">
+            <span class="nav-icon" @click="go('/settings')"><el-icon><Setting /></el-icon></span>
+          </el-tooltip>
+        </div>
+      </header>
+
+      <!-- 内容区（最大 1600px 居中） -->
+      <main class="app-content">
         <router-view />
-      </el-main>
-    </el-container>
+      </main>
+    </div>
+
+    <!-- 全局 Drawer 体系（doc/05.1 §10.3：StudentDrawer / ReportDrawer / DiagnosisDrawer） -->
+    <StudentDrawer />
+    <ReportDrawer />
+    <DiagnosisDrawer />
+    <EvidenceLightbox ref="lightboxRef" />
   </el-config-provider>
 </template>
 
 <script setup>
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { Document, FirstAidKit, Notebook, DataBoard, User, Monitor, Setting } from '@element-plus/icons-vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Setting } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import { useWorkspaceStore, PROCESS_OPTIONS } from './stores/workspace'
+import StudentDrawer from './components/StudentDrawer.vue'
+import ReportDrawer from './components/ReportDrawer.vue'
+import DiagnosisDrawer from './components/DiagnosisDrawer.vue'
+import EvidenceLightbox from './components/EvidenceLightbox.vue'
+import { useLightbox } from './components/lightbox'
 
 const route = useRoute()
-const isScreen = computed(() => route.path === '/')
+const router = useRouter()
+const ws = useWorkspaceStore()
+
+const isActive = (prefix) =>
+  prefix === '/' ? route.path === '/' : route.path.startsWith(prefix)
+const go = (path) => router.push(path)
+
+// ---- EvidenceLightbox 全局单例（EvidenceThumb 通过 useLightbox() 调用） ----
+const lightboxRef = ref(null)
+useLightbox().bind(lightboxRef)
+
+// ---- Esc 关闭 Drawer（doc/05.1 §10.5 键盘快捷键） ----
+function onKeydown(e) {
+  if (e.key === 'Escape' && ws.drawer) ws.closeDrawer()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style>
-html, body, #app { height: 100%; margin: 0; }
-.app-shell { height: 100%; }
-.app-aside { border-right: 1px solid #e4e7ed; display: flex; flex-direction: column; }
-.app-logo { font-weight: 700; padding: 16px; text-align: center; color: #409eff; }
-.app-menu { border-right: none; flex: 1; }
-.app-main { background: #f5f7fa; padding: 16px; overflow: auto; }
+@import './styles/design.css';
 
-/* ===== 全局布局统一（各子模块页面） ===== */
-/* 卡片圆角与阴影统一，垂直堆叠的卡片留出呼吸间距 */
-.app-main .el-card { border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 21, 41, .06) !important; }
-.app-main .el-card + .el-card { margin-top: 12px; }
-/* 卡片头部统一节奏 */
-.app-main .el-card__header { padding: 12px 16px; }
-/* 标题栏（.bar）内筛选控件统一间距与垂直对齐 */
-.app-main .bar { gap: 8px; flex-wrap: wrap; row-gap: 6px; }
-.app-main .bar .el-input, .app-main .bar .el-select { margin-left: 0; }
-/* 表格斑马纹更浅、行悬停高亮统一 */
-.app-main .el-table { --el-table-row-hover-bg-color: #ecf5ff; }
-/* 空态与描述列表统一小间距 */
-.app-main .el-empty { padding: 24px 0; }
+.app-shell { min-height: 100%; display: flex; flex-direction: column; }
 
-/* ===== 统计卡片行（各模块页头下方的概览数字） ===== */
-.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
-.stat-card { background: #fff; border: 1px solid #e4e7ed; border-radius: 8px; padding: 14px 16px;
-  display: flex; flex-direction: column; gap: 4px; box-shadow: 0 1px 4px rgba(0, 21, 41, .04); }
-.stat-card .stat-num { font-size: 26px; font-weight: 700; color: #303133; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.stat-card .stat-label { font-size: 13px; color: #909399; }
-.stat-card.clickable { cursor: pointer; transition: border-color .2s, transform .15s; }
-.stat-card.clickable:hover { border-color: #409eff; transform: translateY(-2px); }
-.stat-card .stat-num.tone-primary { color: #409eff; }
-.stat-card .stat-num.tone-success { color: #67c23a; }
-.stat-card .stat-num.tone-warning { color: #e6a23c; }
-.stat-card .stat-num.tone-danger { color: #f56c6c; }
+/* ===== 顶部导航 ===== */
+.top-nav {
+  height: var(--nav-h);
+  background: var(--c-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.nav-left { display: flex; align-items: center; gap: 32px; }
+.nav-logo { font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.logo-dot { width: 10px; height: 10px; border-radius: 2px; background: var(--c-accent); display: inline-block; }
+.nav-menu { display: flex; gap: 8px; }
+.nav-item {
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: var(--fs-body);
+  color: rgba(255, 255, 255, 0.85);
+  transition: background .15s, color .15s;
+}
+.nav-item:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.nav-item.active { background: rgba(255, 255, 255, 0.2); color: #fff; font-weight: 600; }
 
-/* ===== 筛选栏（独立于卡片 header 的横向工具条） ===== */
-.filter-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.filter-bar .el-input, .filter-bar .el-select { width: 150px; }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.proc-select { width: 130px; }
+.proc-select .el-select__wrapper { background: rgba(255,255,255,.15); box-shadow: none; color: #fff; }
+.proc-select .el-select__placeholder { color: rgba(255,255,255,.75); }
+.proc-select .el-select__selected-item { color: #fff; }
+.proc-select .el-select__caret { color: rgba(255,255,255,.8); }
+.nav-icon { cursor: pointer; font-size: 18px; display: flex; color: rgba(255,255,255,.9); }
+.nav-icon:hover { color: #fff; }
 
-/* ===== 小节标题（卡片内分组标题，替代裸 h4） ===== */
-.app-main .section-title { font-size: 14px; font-weight: 600; color: #303133; margin: 16px 0 8px;
-  padding-left: 8px; border-left: 3px solid #409eff; line-height: 1.4; }
-.app-main .section-title:first-child { margin-top: 0; }
+/* ===== 内容区 ===== */
+.app-content { flex: 1; }
 
-/* ===== 列表填满页面空余高度（全站统一骨架） ===== */
-/* 页面根容器占满主区：页头/统计行为固定高，标记 .fill-card 的列表卡弹性填充
-   （不用 :last-child —— 对话框/抽屉 overlay 是后面的兄弟节点，会破坏匹配） */
-.app-main > div { display: flex; flex-direction: column; min-height: calc(100vh - 32px); }
-.app-main .fill-card { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.app-main .fill-card > .el-card__body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-/* 表格区弹性填充，行数少时以表格底色补齐空余区域 */
-.app-main .fill-card > .el-card__body > .el-table { flex: 1; }
-.app-main .fill-card > .el-card__body > .el-table .el-table__inner-wrapper { height: 100%; }
-/* 左右分栏页（教学闭环）：行占满剩余高度 */
-.app-main .fill-row { flex: 1; min-height: 0; }
-/* 操作列不换行、按钮间距收紧（默认尺寸文字按钮间的 12px 间距过大易溢出） */
-.app-main .op-col .cell { white-space: nowrap; padding: 0 8px; }
-.app-main .op-col .op-btns { display: inline-flex; align-items: center; }
-.app-main .op-col .op-btns .el-button { margin-left: 0; padding: 5px 6px; }
-.app-main .op-col .op-btns .el-button + .el-button { margin-left: 4px; }
-/* 分页条贴底 */
-.app-main .pager { margin-top: auto; padding-top: 12px; }
+/* ===== 事件流图标色（doc/05.1 §6.1） ===== */
+.ev-start { color: var(--c-primary); }
+.ev-done { color: var(--c-success); }
+.ev-timeout { color: var(--c-warning); }
+.ev-interrupt { color: var(--c-danger); }
+.ev-finish { color: var(--c-text-sub); }
 </style>
