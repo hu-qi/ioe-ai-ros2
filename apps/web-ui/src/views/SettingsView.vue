@@ -203,7 +203,7 @@ function restartLogStream() {
 /** 增量拉取日志（journal 游标；拦截器已解包，返回的就是 data） */
 async function pullLogs() {
   try {
-    const params = logCursor ? { cursor: logCursor, limit: 300 } : { minutes: logWindow, limit: 300 }
+    const params = logCursor ? { cursor: logCursor, limit: 300 } : { minutes: logWindow.value, limit: 300 }
     const d = await api.getDevLogs(params)
     if (!d) return
     if (d.reset || (d.cursor === '' && logCursor)) {

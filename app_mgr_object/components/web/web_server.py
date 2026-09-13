@@ -1781,14 +1781,23 @@ class WebServer:
 
         # ==================== 开发者模式：实时日志（doc/04 §六） ====================
         @self.app.get("/api/v1/dev/logs")
-        async def get_dev_logs(cursor: str = "", minutes: int = 0, limit: int = 300):
+        async def get_dev_logs(cursor: str = "", minutes: str = "0", limit: str = "300"):
             """开发者模式实时日志：journalctl 游标增量读取（边缘上报入库明细同源）。
 
             cursor: 上次响应返回的 journal 游标（--show-cursor），传空则按 minutes
                     时间窗回看（默认 5 分钟尾部），并返回起始游标供后续增量。
             minutes: 首次拉取回看窗口（5/10/30 分钟），仅 cursor 为空时生效。
             limit:  单次最多返回行数（增量模式防刷屏）。
+            minutes/limit 为字符串容错解析：非法值回退默认，避免 422 打断轮询。
             """
+            try:
+                minutes_n = int(str(minutes).strip() or 0)
+            except ValueError:
+                minutes_n = 0
+            try:
+                limit_n = int(str(limit).strip() or 300)
+            except ValueError:
+                limit_n = 300
             import subprocess as _sp
             try:
                 if cursor:
@@ -1798,7 +1807,7 @@ class WebServer:
                             f"--after-cursor={cursor}"]
                     use_fallback = False
                 else:
-                    since_min = minutes if minutes > 0 else 5
+                    since_min = minutes_n if minutes_n > 0 else 5
                     since_min = min(since_min, 60)
                     args = ["journalctl", "-u", "app_mgr.service", "--no-pager",
                             "-o", "short-iso", "--show-cursor",
@@ -1845,7 +1854,7 @@ class WebServer:
                         if lines2 and lines2[-1].startswith("-- cursor:"):
                             new_cursor = lines2[-1]
 
-                max_lines = max(1, min(limit, 800))
+                max_lines = max(1, min(limit_n, 800))
                 if use_fallback:
                     total = len(raw_lines)
                     chunk = [l.rstrip() for l in raw_lines[max(0, total - max_lines):]]
