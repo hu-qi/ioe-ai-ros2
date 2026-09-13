@@ -151,7 +151,8 @@ const RULE_TYPE_LABEL = {
 }
 
 // ==================== 开发者模式：连点版本号 7 次 → 实时日志 ====================
-const devMode = ref(false)
+// 状态持久化到 sessionStorage：刷新页面不丢（调试场景），关标签页/会话结束自动退出
+const devMode = ref(sessionStorage.getItem('ui_dev_mode') === '1')
 const logLines = ref([])
 const autoScroll = ref(true)
 const logBox = ref(null)
@@ -168,6 +169,7 @@ function onVersionClick() {
   if (verClicks >= 7) {
     verClicks = 0
     devMode.value = !devMode.value
+    sessionStorage.setItem('ui_dev_mode', devMode.value ? '1' : '0')
     if (devMode.value) {
       ElMessage.success('开发者模式已开启')
       logCursor = 0
@@ -313,6 +315,12 @@ onMounted(() => {
   loadScoring()
   loadDiagnosisRules()
   loadSystemInfo()
+  // 刷新后开发者模式仍开启(sessionStorage持久化): 恢复日志轮询
+  if (devMode.value) {
+    logCursor = 0
+    pullLogs()
+    logTimer = setInterval(pullLogs, 3000)
+  }
 })
 </script>
 
