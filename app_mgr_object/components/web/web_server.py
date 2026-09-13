@@ -1753,6 +1753,9 @@ class WebServer:
                                             "mtime": int(_os.path.getmtime(fp) * 1000)})
                         except OSError:
                             pass
+            # 系统信息（设置页展示）：版本 / 运行模式 / 运行时长
+            # status_callback 返回 {system_info:{...}} 包裹结构（见 /api/status/system 路由）
+            _sys = ((self.status_callback() or {}).get("system_info", {})) if self.status_callback else {}
             return {"code": 0, "message": "ok", "data": {
                 "db_path": db_path,
                 "db_exists": _os.path.exists(db_path),
@@ -1760,7 +1763,22 @@ class WebServer:
                 "backup_time": str(self.config.get("backup_time", "03:00")),
                 "backup_keep_days": int(self.config.get("backup_keep_days", 7)),
                 "backups": backups[:20],
+                "version": str(self.config.get("version", "0.2.1")),
+                "mode": str(_sys.get("operation_mode", "-")),
+                "uptime": self._fmt_uptime(_sys.get("start_time")),
             }}
+
+    @staticmethod
+    def _fmt_uptime(start_time) -> str:
+        """start_time(epoch 秒) → 'x天x小时x分' 可读时长。"""
+        try:
+            secs = max(0, int(time.time() - float(start_time)))
+            d, rem = divmod(secs, 86400)
+            h, rem = divmod(rem, 3600)
+            m, _ = divmod(rem, 60)
+            return (f"{d}天{h}小时{m}分" if d else f"{h}小时{m}分" if h else f"{m}分钟")
+        except (TypeError, ValueError):
+            return "-"
 
         # ==================== 开发者模式：实时日志（doc/04 §六） ====================
         @self.app.get("/api/v1/dev/logs")

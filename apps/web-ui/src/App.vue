@@ -14,6 +14,10 @@
           </nav>
         </div>
         <div class="nav-right">
+          <!-- 实时时钟（教官现场带训对照时段用，doc/05.1 看板惯例） -->
+          <el-tooltip :content="clockDate" placement="bottom">
+            <span class="nav-clock">{{ clockText }}</span>
+          </el-tooltip>
           <!-- 全局工序筛选（doc/04 §一：所有界面支持工序筛选） -->
           <el-select
             :model-value="ws.process"
@@ -122,11 +126,27 @@ onMounted(() => {
   window.addEventListener('popstate', onPopstate)
   // 筛选条件从 URL Query 恢复（doc/05.1 §10.4 状态保持）
   ws.restoreFromQuery()
+  // 实时时钟（顶栏右侧，1s 刷新）
+  tickClock()
+  clockTimer = setInterval(tickClock, 1000)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('popstate', onPopstate)
+  clearInterval(clockTimer)
 })
+
+// ---- 实时时钟（HH:mm:ss；tooltip 显示完整日期） ----
+let clockTimer = null
+const clockText = ref('')
+const clockDate = ref('')
+function tickClock() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  clockText.value = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+  const week = ['日', '一', '二', '三', '四', '五', '六'][d.getDay()]
+  clockDate.value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} 星期${week}`
+}
 
 // ---- 全局搜索：学员 + 报告并行检索 ----
 async function doSearch() {
@@ -202,6 +222,7 @@ function goReport(id) {
 .proc-select .el-select__selected-item { color: var(--c-text-main); }
 .proc-select .el-select__caret { color: var(--c-text-weak); }
 .nav-icon { cursor: pointer; font-size: 18px; display: flex; color: var(--c-text-sub); padding: 6px; border-radius: var(--radius-sm); transition: background var(--t-fast), color var(--t-fast); }
+.nav-clock { font-variant-numeric: tabular-nums; font-size: var(--fs-body); font-weight: 600; color: var(--c-text-sub); padding: 4px 10px; cursor: default; user-select: none; }
 .nav-icon:hover { background: var(--c-bg-deep); color: var(--c-primary); }
 
 /* ===== 内容区 ===== */
