@@ -2,7 +2,7 @@
   <el-drawer
     :model-value="visible"
     title="训练报告速览"
-    size="680px"
+    size="46%"
     :destroy-on-close="true"
     @close="ws.closeDrawer()"
   >

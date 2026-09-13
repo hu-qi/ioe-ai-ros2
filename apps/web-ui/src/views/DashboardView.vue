@@ -41,6 +41,11 @@
                 <span class="rt-ev-text">{{ kindStyle(ev.kind).label }} {{ ev.sub ? `子步骤${ev.sub}` : '' }}</span>
               </div>
             </div>
+            <!-- 最新抓拍缩略图（doc/05.1 §6.1 区域①底部：120×90，悬停放大，点击 Lightbox） -->
+            <div v-if="latestSnap(d.device_id)" class="rt-snap">
+              <span class="rt-snap-label ts">最新抓拍</span>
+              <EvidenceThumb :item="latestSnap(d.device_id)" :width="120" :height="90" />
+            </div>
           </div>
         </div>
       </section>
@@ -145,6 +150,7 @@ import { fmtDuration, fromNow, attentionTag, EVENT_KIND_STYLE, fmtClock } from '
 import MetricCard from '../components/MetricCard.vue'
 import ScoreTag from '../components/ScoreTag.vue'
 import DiagnosisItem from '../components/DiagnosisItem.vue'
+import EvidenceThumb from '../components/EvidenceThumb.vue'
 
 const router = useRouter()
 const ws = useWorkspaceStore()
@@ -261,6 +267,19 @@ function isOvertime(d) {
   return false // 标准用时对比需子步骤数据，实时流只给已用时长；超时事件在事件流中以 ⚠ 呈现
 }
 function eventsOf(deviceId) { return eventsByDevice[deviceId] || [] }
+/** 最新抓拍缩略图（doc/05.1 §6.1 区域①底部）：取该设备最新一条证据（缓存，避免每帧请求） */
+const snapCache = {}
+function latestSnap(deviceId) {
+  if (snapCache[deviceId] !== undefined) return snapCache[deviceId]
+  snapCache[deviceId] = null
+  api.listEvidence({ device_id: deviceId, limit: 1 })
+    .then((res) => {
+      const list = res?.evidence || res?.list || []
+      snapCache[deviceId] = (list[0]?.jpg_path || list[0]?.thumb_path) ? list[0] : null
+    })
+    .catch(() => { snapCache[deviceId] = null })
+  return null
+}
 function evClock(d, ev) {
   return ev?._wall ? fmtClock(ev._wall) : '--:--:--'
 }
@@ -308,6 +327,8 @@ function goReportsDiagnosis() { go('/reports') }
 .rt-elapsed { margin-left: 8px; font-size: var(--fs-aux); color: var(--c-text-weak); }
 .rt-elapsed.overtime { color: var(--c-warning); font-weight: 600; }
 .rt-events { margin-top: 8px; border-top: 1px dashed var(--c-divider); padding-top: 6px; max-height: 150px; overflow: auto; }
+.rt-snap { margin-top: 8px; display: flex; align-items: flex-end; gap: 8px; }
+.rt-snap-label { line-height: 90px; }
 .rt-ev { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: var(--fs-aux); }
 .rt-ev-icon { width: 14px; text-align: center; }
 .rt-ev-text { color: var(--c-text-sub); }
