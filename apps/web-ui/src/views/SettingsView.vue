@@ -102,11 +102,30 @@
       <section class="card">
         <div class="card-title">系统信息</div>
         <div v-if="sysInfo" class="sys-list">
-          <div class="sys-row"><span>版本</span><b>{{ sysInfo.version || '-' }}</b></div>
+          <div class="sys-row">
+            <span>版本</span>
+            <!-- 连点 7 次进入开发者模式（Android 彩蛋惯例），查看实时上报日志 -->
+            <b class="ver-num" @click="onVersionClick">{{ sysInfo.version || '-' }}</b>
+          </div>
           <div class="sys-row"><span>运行模式</span><b>{{ sysInfo.mode || '-' }}</b></div>
           <div class="sys-row"><span>运行时长</span><b>{{ sysInfo.uptime || '-' }}</b></div>
         </div>
         <el-empty v-else description="加载中" :image-size="48" />
+      </section>
+
+      <!-- ===== 开发者模式：实时日志（连点版本号 7 次开启） ===== -->
+      <section v-if="devMode" class="card dev-card">
+        <div class="card-title">
+          实时日志 <span class="dev-badge">开发者模式</span>
+          <span class="title-extra">
+            <span class="ts">边缘上报与平台入库日志（与 journalctl -u app_mgr 同源）</span>
+            <el-switch v-model="autoScroll" size="small" active-text="自动刷新" style="margin-left:12px" />
+          </span>
+        </div>
+        <div ref="logBox" class="dev-log">
+          <div v-for="(l, i) in logLines" :key="i" class="dev-line" :class="lineCls(l)">{{ l }}</div>
+          <div v-if="!logLines.length" class="dev-line ts">暂无日志…</div>
+        </div>
       </section>
     </div>
   </div>
@@ -118,7 +137,7 @@
  * 评分规则/诊断阈值按工序编辑；保存前客户端校验，失败提示；
  * 回滚 = 重新从服务端拉取；重载配置 = POST /api/v1/config/reload 热生效。
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElSelect, ElOption, ElTable, ElTableColumn, ElInputNumber, ElInput, ElSwitch, ElButton, ElEmpty, ElSkeleton, ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 
@@ -130,6 +149,66 @@ const RULE_TYPE_LABEL = {
   stddev: '用时波动',
   regression: '退步预警',
 }
+
+// ==================== 开发者模式：连点版本号 7 次 → 实时日志 ====================
+const devMode = ref(false)
+const logLines = ref([])
+const autoScroll = ref(true)
+const logBox = ref(null)
+let verClicks = 0
+let verClickTimer = null
+let logCursor = 0
+let logTimer = null
+
+/** 版本号连点 7 次（2s 内）进入开发者模式，再连点 7 次退出 */
+function onVersionClick() {
+  clearTimeout(verClickTimer)
+  verClickTimer = setTimeout(() => { verClicks = 0 }, 2000)
+  verClicks += 1
+  if (verClicks >= 7) {
+    verClicks = 0
+    devMode.value = !devMode.value
+    if (devMode.value) {
+      ElMessage.success('开发者模式已开启')
+      logCursor = 0
+      logLines.value = []
+      pullLogs()
+      logTimer = setInterval(pullLogs, 3000)
+    } else {
+      clearInterval(logTimer)
+      ElMessage.info('开发者模式已关闭')
+    }
+  }
+}
+
+/** 增量拉取日志（游标 since，3s 轮询；拦截器已解包，返回的就是 data） */
+async function pullLogs() {
+  try {
+    const d = await api.getDevLogs(logCursor)
+    if (!d || !Array.isArray(d.lines)) return
+    if (!d.lines.length || (d.cursor ?? 0) === logCursor) {
+      logCursor = d.cursor ?? logCursor
+      return
+    }
+    logCursor = d.cursor ?? logCursor
+    logLines.value.push(...d.lines)
+    // 上限 3000 行, 防长驻膨胀
+    if (logLines.value.length > 3000) logLines.value = logLines.value.slice(-3000)
+    nextTick(() => {
+      if (autoScroll.value && logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
+    })
+  } catch { /* 忽略轮询错误, 下轮重试 */ }
+}
+
+/** 日志行按级别着色 */
+function lineCls(l) {
+  if (/ERROR|Traceback|失败/.test(l)) return 'lv-err'
+  if (/WARN/.test(l)) return 'lv-warn'
+  if (/POST|PUT \/api|入库/.test(l)) return 'lv-api'
+  return ''
+}
+
+onUnmounted(() => { clearInterval(logTimer); clearTimeout(verClickTimer) })
 
 // ==================== 评分规则 ====================
 const scoring = ref(null)
@@ -248,4 +327,18 @@ onMounted(() => {
 .sys-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .sys-row { display: flex; justify-content: space-between; font-size: var(--fs-body); color: var(--c-text-sub); }
 .sys-row b { color: var(--c-text-main); }
+.ver-num { cursor: pointer; user-select: none; }
+.dev-badge {
+  font-size: var(--fs-aux); color: #fff; background: var(--c-primary);
+  border-radius: 3px; padding: 1px 6px; margin-left: 8px;
+}
+.dev-log {
+  margin-top: 10px; height: 360px; overflow: auto; background: #0F172A;
+  border-radius: 6px; padding: 10px 12px; font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px; line-height: 1.7;
+}
+.dev-line { color: #CBD5E1; word-break: break-all; white-space: pre-wrap; }
+.dev-line.lv-err { color: #F87171; }
+.dev-line.lv-warn { color: #FBBF24; }
+.dev-line.lv-api { color: #60A5FA; }
 </style>

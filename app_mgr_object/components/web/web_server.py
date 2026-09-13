@@ -1762,6 +1762,39 @@ class WebServer:
                 "backups": backups[:20],
             }}
 
+        # ==================== 开发者模式：实时日志（doc/04 §六） ====================
+        @self.app.get("/api/v1/dev/logs")
+        async def get_dev_logs(since: int = 0, limit: int = 300):
+            """开发者模式实时日志：读取本进程 ROS 标准日志最新内容。
+
+            since: 上次返回的最后一行序号（增量拉取）；limit: 最多返回行数。
+            日志文件 = /root/.ros/log/latest/ 启动目录内的 *.log（与 journalctl 同源）。
+            """
+            import os as _os, glob as _glob
+            log_dir = _os.path.realpath("/root/.ros/log/latest")
+            lines_out, next_cursor = [], since
+            try:
+                # 取该次启动目录下所有 .log, 按修改时间倒序, 只读最新的 1~2 个
+                files = sorted(_glob.glob(_os.path.join(log_dir, "*.log")),
+                               key=_os.path.getmtime, reverse=True)[:2]
+                all_lines = []
+                for fp in files:
+                    try:
+                        with open(fp, "r", encoding="utf-8", errors="replace") as f:
+                            all_lines.extend(f.readlines())
+                    except OSError:
+                        pass
+                # 时间顺序合并后按游标增量截取
+                total = len(all_lines)
+                start = max(0, min(since, total))
+                chunk = all_lines[start:start + max(1, min(limit, 800))]
+                lines_out = [l.rstrip("\n") for l in chunk]
+                next_cursor = start + len(chunk)
+            except Exception as e:
+                return {"code": 1, "message": f"读取日志失败: {e}", "data": {"lines": [], "cursor": since, "log_dir": log_dir}}
+            return {"code": 0, "message": "ok",
+                    "data": {"lines": lines_out, "cursor": next_cursor, "log_dir": log_dir}}
+
 
     
     def _start_websocket_broadcast(self):

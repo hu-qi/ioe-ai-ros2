@@ -38,6 +38,8 @@ export const api = {
   getReport(reportId) { return http.get(`/reports/${encodeURIComponent(reportId)}`) },
   // 证据（P3）
   listEvidence(params) { return http.get('/evidence', { params }) },
+  // 开发者模式实时日志（设置页连点版本号 7 次开启）
+  getDevLogs(since = 0) { return http.get('/dev/logs', { params: { since, limit: 300 } }) },
   evidenceImageUrl(id, thumb = true) {
     return `/api/v1/evidence/${id}/image${thumb ? '?thumb=1' : ''}`
   },
