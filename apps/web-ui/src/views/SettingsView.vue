@@ -322,6 +322,8 @@ onMounted(() => {
 .st-global-items { display: flex; align-items: center; gap: 10px; color: var(--c-text-sub); font-size: var(--fs-body); }
 .st-actions { margin-top: 14px; display: flex; gap: 8px; }
 .st-bottom { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; margin-top: 16px; }
+/* 开发者模式日志卡跨满两列(3fr+2fr+gap), 避免挤在窄列里换行错乱 */
+.dev-card { grid-column: 1 / -1; }
 .sync-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .sync-tip { margin-top: 10px; font-size: var(--fs-aux); color: var(--c-text-weak); }
 .sys-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
