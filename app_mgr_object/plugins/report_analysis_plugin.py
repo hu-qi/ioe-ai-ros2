@@ -350,5 +350,23 @@ class ReportAnalysisPlugin(BasePlugin):
                 )
             return {"code": 0, "message": "ok", "data": result}
 
+        # ------------------------------------------------------------ #
+        # 7. 单设备详情 (doc/dev01 §8 GET /api/v1/analysis/{device_id})
+        #    通配路由必须注册在上方具体子路由之后, 避免遮蔽 diagnosis 等路径
+        # ------------------------------------------------------------ #
+        from ..components.web.report_repo import ReportRepo
+        report_repo = ReportRepo(self._db_path, self.logger)
+
+        @app.get("/api/v1/analysis/{device_id}")
+        async def device_analysis(device_id: str):
+            """单设备维度分析: 报告数/事件数/完成原因分布/最新进度/最近报告。"""
+            detail = report_repo.get_device_detail(device_id)
+            if detail is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"code": 404, "message": "设备不存在或无上报数据", "data": {}}
+                )
+            return {"code": 0, "message": "ok", "data": detail}
+
         if logger:
-            logger.info("ReportAnalysisPlugin 路由注册完成 (8 个端点)")
+            logger.info("ReportAnalysisPlugin 路由注册完成 (9 个端点)")

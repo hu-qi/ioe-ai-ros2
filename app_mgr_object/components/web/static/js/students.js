@@ -119,7 +119,7 @@
             }
             var data = res.data || {};
             state.total = data.total || 0;
-            var list = data.list || [];
+            var list = data.students || [];
 
             if (list.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">暂无学员数据</td></tr>';

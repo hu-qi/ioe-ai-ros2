@@ -253,11 +253,18 @@ class ReportRecvPlugin(BasePlugin):
             end_ms: int = 0,
             step_index: int = -1,
             page: int = 1,
-            page_size: int = 20
+            page_size: int = 20,
+            limit: int = 0
         ):
-            """报告列表检索 (多条件过滤 + 分页). step_index >= 0 时按步骤下钻过滤."""
+            """报告列表检索 (多条件过滤 + 分页). step_index >= 0 时按步骤下钻过滤.
+
+            兼容 doc/dev01 §8 的 limit 参数：limit>0 时等价 page_size=limit、page=1。
+            """
             if page_size > 100:
                 page_size = 100
+            if limit > 0:
+                page_size = min(limit, 100)
+                page = 1
 
             filters = {}
             if student_id:
@@ -353,6 +360,21 @@ class ReportRecvPlugin(BasePlugin):
         async def list_subscriptions():
             """订阅设备列表 (doc/45 §4.4)."""
             result = repo.list_subscriptions()
+            return {"code": 0, "message": "ok", "data": result}
+
+        # ------------------------------------------------------------ #
+        # 5.1 设备汇总/单设备详情/联调汇总 (doc/dev01 §8)
+        # ------------------------------------------------------------ #
+        @app.get("/api/v1/devices")
+        async def list_devices():
+            """设备汇总（doc/dev01 §8）：订阅状态/报告数/事件数/最新进度。"""
+            result = repo.list_devices()
+            return {"code": 0, "message": "ok", "data": result}
+
+        @app.get("/api/v1/debug/training_summary")
+        async def debug_training_summary():
+            """落盘/入库汇总（doc/dev01 §8 联调辅助）。"""
+            result = repo.debug_training_summary()
             return {"code": 0, "message": "ok", "data": result}
 
         # ------------------------------------------------------------ #

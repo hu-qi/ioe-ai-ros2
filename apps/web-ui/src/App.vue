@@ -160,7 +160,7 @@ async function doSearch() {
       api.listReports({ student_id: kw, page: 1, page_size: 10 }).catch(() => null),
     ])
     searchResults.value = {
-      students: stu?.list || [],
+      students: stu?.students || [],
       reports: rep?.list || [],
     }
     searchDone.value = true

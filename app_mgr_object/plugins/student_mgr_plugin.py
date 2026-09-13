@@ -183,7 +183,13 @@ class StudentMgrPlugin(BasePlugin):
                 page=page,
                 page_size=ps
             )
-            return {"code": 0, "message": "ok", "data": result}
+            # 键名统一为 students（doc/74 §3.1，与端侧同步模式一致）
+            return {"code": 0, "message": "ok", "data": {
+                "total": result.get("total", 0),
+                "page": result.get("page", page),
+                "page_size": result.get("page_size", ps),
+                "students": result.get("list", []),
+            }}
 
         # ------------------------------------------------------------ #
         # 2. CSV 导出（必须在 {student_id} 路由之前注册，否则被当成 student_id）

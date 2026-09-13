@@ -251,7 +251,7 @@ async function loadReports() {
 
 async function loadStudentOptions() {
   const d = await api.listStudents({ page: 1, page_size: 100 }).catch(() => null)
-  studentOptions.value = d?.list || []
+  studentOptions.value = d?.students || []
 }
 
 function goDetail(id) { router.push(`/reports/${encodeURIComponent(id)}`) }

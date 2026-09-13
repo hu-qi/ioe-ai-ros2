@@ -1781,32 +1781,85 @@ class WebServer:
 
         # ==================== 开发者模式：实时日志（doc/04 §六） ====================
         @self.app.get("/api/v1/dev/logs")
-        async def get_dev_logs(since: int = 0, limit: int = 300):
-            """开发者模式实时日志：journalctl -u app_mgr 增量读取（边缘上报入库明细同源）。
+        async def get_dev_logs(cursor: str = "", minutes: int = 0, limit: int = 300):
+            """开发者模式实时日志：journalctl 游标增量读取（边缘上报入库明细同源）。
 
-            since: journalctl 游标行号(i= 后半段十六进制计数, 用 --show-cursor 维护);
-            这里简化为"行偏移"模式: 用 journalctl -n 全量行缓存 + since 行偏移截取。
-            limit: 最多返回行数。
+            cursor: 上次响应返回的 journal 游标（--show-cursor），传空则按 minutes
+                    时间窗回看（默认 5 分钟尾部），并返回起始游标供后续增量。
+            minutes: 首次拉取回看窗口（5/10/30 分钟），仅 cursor 为空时生效。
+            limit:  单次最多返回行数（增量模式防刷屏）。
             """
             import subprocess as _sp
             try:
-                # 只读本 unit 的日志, 不带 -f(由前端轮询增量)
+                if cursor:
+                    # 增量模式：只取游标之后的新行（游标失效时 journalctl 非零退出，回退尾部）
+                    args = ["journalctl", "-u", "app_mgr.service", "--no-pager",
+                            "-o", "short-iso", "--show-cursor",
+                            f"--after-cursor={cursor}"]
+                    use_fallback = False
+                else:
+                    since_min = minutes if minutes > 0 else 5
+                    since_min = min(since_min, 60)
+                    args = ["journalctl", "-u", "app_mgr.service", "--no-pager",
+                            "-o", "short-iso", "--show-cursor",
+                            f"--since=-{since_min}min"]
+                    use_fallback = True
                 proc = await asyncio.create_subprocess_exec(
-                    "journalctl", "-u", "app_mgr.service", "--no-pager", "-n", "2000",
-                    "-o", "short-iso",
-                    stdout=_sp.PIPE, stderr=_sp.DEVNULL,
+                    *args, stdout=_sp.PIPE, stderr=_sp.PIPE,
                 )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-                all_lines = stdout.decode("utf-8", errors="replace").splitlines()
+                try:
+                    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    raise
+                err_text = (stderr or b"").decode("utf-8", errors="replace")
+                if proc.returncode not in (0, 1):
+                    raise RuntimeError(f"journalctl 退出码 {proc.returncode}: {err_text.strip()}")
+                raw_lines = stdout.decode("utf-8", errors="replace").splitlines()
+                # 末行形如 "-- cursor: s=xxxx i=xxxx ..."，剥离出游标
+                new_cursor = ""
+                if raw_lines and raw_lines[-1].startswith("-- cursor:"):
+                    new_cursor = raw_lines[-1]
+                    raw_lines = raw_lines[:-1]
+
+                if not use_fallback:
+                    if "Failed to seek to cursor" in err_text or "Failed to seek to cursor" in " ".join(raw_lines):
+                        # 游标真失效（journal 轮转/清理/服务重装）：返回重置信号，
+                        # 前端回退时间窗模式重新回看
+                        return {"code": 0, "message": "cursor reset",
+                                "data": {"lines": [], "cursor": "", "reset": True,
+                                         "source": "journalctl"}}
+                    if not new_cursor:
+                        # 无新行时 journalctl 不输出 cursor 行：游标仍有效，原样返回
+                        new_cursor = cursor
+                else:
+                    if not new_cursor:
+                        # 无日志时 journalctl 可能不输出 cursor 行：拉任意一行补游标
+                        proc2 = await asyncio.create_subprocess_exec(
+                            "journalctl", "-u", "app_mgr.service", "--no-pager",
+                            "-o", "short-iso", "--show-cursor", "-n", "1",
+                            stdout=_sp.PIPE, stderr=_sp.DEVNULL,
+                        )
+                        out2, _ = await asyncio.wait_for(proc2.communicate(), timeout=5)
+                        lines2 = out2.decode("utf-8", errors="replace").splitlines()
+                        if lines2 and lines2[-1].startswith("-- cursor:"):
+                            new_cursor = lines2[-1]
+
+                max_lines = max(1, min(limit, 800))
+                if use_fallback:
+                    total = len(raw_lines)
+                    chunk = [l.rstrip() for l in raw_lines[max(0, total - max_lines):]]
+                else:
+                    chunk = [l.rstrip() for l in raw_lines[:max_lines]]
+                return {"code": 0, "message": "ok",
+                        "data": {"lines": chunk, "cursor": new_cursor,
+                                 "source": "journalctl"}}
+            except FileNotFoundError:
+                return {"code": 1, "message": "journalctl 不可用（非 systemd 环境）",
+                        "data": {"lines": [], "cursor": "", "source": "journalctl"}}
             except Exception as e:
                 return {"code": 1, "message": f"journalctl 读取失败: {e}",
-                        "data": {"lines": [], "cursor": since, "source": "journalctl"}}
-            total = len(all_lines)
-            start = max(0, min(since, total))
-            chunk = all_lines[start:start + max(1, min(limit, 800))]
-            return {"code": 0, "message": "ok",
-                    "data": {"lines": [l.rstrip() for l in chunk], "cursor": start + len(chunk),
-                             "source": "journalctl", "total": total}}
+                        "data": {"lines": [], "cursor": "", "source": "journalctl"}}
 
 
     

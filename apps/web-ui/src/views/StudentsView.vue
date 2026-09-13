@@ -122,7 +122,7 @@ async function load() {
   loading.value = true
   try {
     const d = await api.listStudents({ ...query })
-    rows.value = (d.list || []).map((s) => ({ ...s }))
+    rows.value = (d.students || []).map((s) => ({ ...s }))
     total.value = d.total || 0
     // 从列表数据提取班级选项
     const set = new Set(rows.value.map((r) => r.cls).filter(Boolean))

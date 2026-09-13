@@ -122,7 +122,7 @@ class TestListStudents:
         resp = client.get("/api/v1/students?page=1&page_size=20&status=all")
         data = resp.json()["data"]
         assert data["total"] == 5
-        assert len(data["list"]) == 5
+        assert len(data["students"]) == 5
 
     def test_list_keyword_search(self, app_and_repo):
         client, repo = app_and_repo
@@ -131,7 +131,7 @@ class TestListStudents:
         resp = client.get("/api/v1/students?keyword=张明&page=1&page_size=20&status=all")
         data = resp.json()["data"]
         assert data["total"] == 1
-        assert data["list"][0]["name"] == "张明"
+        assert data["students"][0]["name"] == "张明"
 
     def test_edge_sync_format(self, app_and_repo):
         """dev01 v2 §7: 无 page/page_size/status 参数 = 端侧同步模式,
@@ -156,9 +156,9 @@ class TestListStudents:
         resp = client.get("/api/v1/students?page=1&page_size=20")
         data = resp.json()["data"]
         assert data["total"] == 25
-        assert len(data["list"]) == 20
+        assert len(data["students"]) == 20
         resp2 = client.get("/api/v1/students?page=2&page_size=20")
-        assert len(resp2.json()["data"]["list"]) == 5
+        assert len(resp2.json()["data"]["students"]) == 5
 
 
 # ============================================================

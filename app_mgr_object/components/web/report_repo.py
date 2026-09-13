@@ -825,6 +825,153 @@ class ReportRepo:
             conn.close()
 
     # ------------------------------------------------------------------
+    # 设备汇总 (doc/dev01 §8 GET /api/v1/devices, GET /api/v1/analysis/{device_id})
+    # ------------------------------------------------------------------
+    def list_devices(self) -> Dict[str, Any]:
+        """设备汇总：订阅状态 + 报告数 + 事件数 + 最新进度（doc/dev01 §8）。
+
+        设备集合 = reports / report_progress / subscriptions 三表并集。
+        """
+        conn = self._connect()
+        try:
+            device_ids = set()
+            for row in conn.execute(
+                "SELECT DISTINCT device_id FROM reports "
+                "UNION SELECT DISTINCT device_id FROM report_progress "
+                "UNION SELECT DISTINCT device_id FROM subscriptions"
+            ):
+                device_ids.add(row["device_id"])
+
+            devices: Dict[str, Any] = {}
+            for device_id in device_ids:
+                rep = conn.execute(
+                    "SELECT COUNT(*) AS n FROM reports WHERE device_id = ?",
+                    (device_id,)
+                ).fetchone()
+                ev = conn.execute(
+                    """SELECT COUNT(*) AS n FROM report_events
+                       WHERE report_id IN (SELECT report_id FROM reports WHERE device_id = ?)""",
+                    (device_id,)
+                ).fetchone()
+                prog = conn.execute(
+                    """SELECT round_start_ms, done, total, current, current_sub_index,
+                              process_elapsed_ms, updated_at
+                       FROM report_progress WHERE device_id = ?
+                       ORDER BY updated_at DESC LIMIT 1""",
+                    (device_id,)
+                ).fetchone()
+                sub = conn.execute(
+                    "SELECT active, subscribed_at_ms FROM subscriptions WHERE device_id = ?",
+                    (device_id,)
+                ).fetchone()
+                devices[device_id] = {
+                    "report_count": rep["n"] if rep else 0,
+                    "event_count": ev["n"] if ev else 0,
+                    "subscription": {
+                        "active": bool(sub["active"]) if sub else False,
+                        "subscribed_at_ms": sub["subscribed_at_ms"] if sub else None,
+                    },
+                    "latest_progress": dict(prog) if prog else None,
+                }
+            return {"devices": devices, "count": len(devices)}
+        finally:
+            conn.close()
+
+    def get_device_detail(self, device_id: str) -> Optional[Dict[str, Any]]:
+        """单设备详情（doc/dev01 §8 GET /api/v1/analysis/{device_id}）。"""
+        conn = self._connect()
+        try:
+            rep = conn.execute(
+                "SELECT COUNT(*) AS n FROM reports WHERE device_id = ?",
+                (device_id,)
+            ).fetchone()
+            has_prog = conn.execute(
+                "SELECT 1 FROM report_progress WHERE device_id = ? LIMIT 1",
+                (device_id,)
+            ).fetchone()
+            has_sub = conn.execute(
+                "SELECT 1 FROM subscriptions WHERE device_id = ? LIMIT 1",
+                (device_id,)
+            ).fetchone()
+            if (not rep or rep["n"] == 0) and not has_prog and not has_sub:
+                return None
+
+            recent = conn.execute(
+                """SELECT report_id, student_id, student_name, student_cls,
+                          process_name, finish_reason, start_ms, duration_ms,
+                          total_score, ts_upload_ms
+                   FROM reports WHERE device_id = ?
+                   ORDER BY ts_upload_ms DESC LIMIT 20""",
+                (device_id,)
+            ).fetchall()
+            prog = conn.execute(
+                """SELECT round_start_ms, done, total, current, current_sub_index,
+                          process_elapsed_ms, updated_at
+                   FROM report_progress WHERE device_id = ?
+                   ORDER BY updated_at DESC LIMIT 1""",
+                (device_id,)
+            ).fetchone()
+            sub = conn.execute(
+                "SELECT active, subscribed_at_ms FROM subscriptions WHERE device_id = ?",
+                (device_id,)
+            ).fetchone()
+            ev = conn.execute(
+                """SELECT COUNT(*) AS n FROM report_events
+                   WHERE report_id IN (SELECT report_id FROM reports WHERE device_id = ?)""",
+                (device_id,)
+            ).fetchone()
+            finish = conn.execute(
+                """SELECT finish_reason, COUNT(*) AS n FROM reports
+                   WHERE device_id = ? GROUP BY finish_reason""",
+                (device_id,)
+            ).fetchall()
+            return {
+                "device_id": device_id,
+                "report_count": rep["n"] if rep else 0,
+                "event_count": ev["n"] if ev else 0,
+                "finish_reason_counts": {r["finish_reason"] or "": r["n"] for r in finish},
+                "subscription": {
+                    "active": bool(sub["active"]) if sub else False,
+                    "subscribed_at_ms": sub["subscribed_at_ms"] if sub else None,
+                },
+                "latest_progress": dict(prog) if prog else None,
+                "recent_reports": [dict(r) for r in recent],
+            }
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
+    # 联调汇总 (doc/dev01 §8 GET /api/v1/debug/training_summary)
+    # ------------------------------------------------------------------
+    def debug_training_summary(self) -> Dict[str, Any]:
+        """落盘/入库汇总（联调用）：reports/events/evidence 各表计数与最近记录。"""
+        conn = self._connect()
+        try:
+            def _count(table: str) -> int:
+                row = conn.execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+                return row["n"] if row else 0
+
+            recent_reports = conn.execute(
+                """SELECT report_id, device_id, student_id, process_name,
+                          finish_reason, ts_upload_ms
+                   FROM reports ORDER BY ts_upload_ms DESC LIMIT 10"""
+            ).fetchall()
+            recent_evidence = conn.execute(
+                """SELECT device_id, round_start_ms, sub, ts, file_path, created_at
+                   FROM evidence ORDER BY created_at DESC LIMIT 10"""
+            ).fetchall()
+            return {
+                "reports": _count("reports"),
+                "events": _count("report_events"),
+                "evidence": _count("evidence"),
+                "progress": _count("report_progress"),
+                "recent_reports": [dict(r) for r in recent_reports],
+                "recent_evidence": [dict(r) for r in recent_evidence],
+            }
+        finally:
+            conn.close()
+
+    # ------------------------------------------------------------------
     # 原始 JSON 落盘 (doc/38 §7 完整留存)
     # ------------------------------------------------------------------
     def save_raw_json(self, device_id: str, report_id: str,

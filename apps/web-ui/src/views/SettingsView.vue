@@ -119,6 +119,11 @@
           实时日志 <span class="dev-badge">开发者模式</span>
           <span class="title-extra">
             <span class="ts">边缘上报与平台入库日志（与 journalctl -u app_mgr 同源）</span>
+            <el-radio-group v-model="logWindow" size="small" style="margin-left:12px" @change="onWindowChange">
+              <el-radio-button :value="5">近5分</el-radio-button>
+              <el-radio-button :value="10">近10分</el-radio-button>
+              <el-radio-button :value="30">近30分</el-radio-button>
+            </el-radio-group>
             <el-switch v-model="autoScroll" size="small" active-text="自动刷新" style="margin-left:12px" />
           </span>
         </div>
@@ -155,10 +160,11 @@ const RULE_TYPE_LABEL = {
 const devMode = ref(sessionStorage.getItem('ui_dev_mode') === '1')
 const logLines = ref([])
 const autoScroll = ref(true)
+const logWindow = ref(5) // 回看窗口（分钟）：5/10/30
 const logBox = ref(null)
 let verClicks = 0
 let verClickTimer = null
-let logCursor = 0
+let logCursor = '' // journal 游标（--show-cursor），空串 = 按时间窗拉取
 let logTimer = null
 
 /** 版本号连点 7 次（2s 内）进入开发者模式，再连点 7 次退出 */
@@ -172,10 +178,7 @@ function onVersionClick() {
     sessionStorage.setItem('ui_dev_mode', devMode.value ? '1' : '0')
     if (devMode.value) {
       ElMessage.success('开发者模式已开启')
-      logCursor = 0
-      logLines.value = []
-      pullLogs()
-      logTimer = setInterval(pullLogs, 3000)
+      restartLogStream()
     } else {
       clearInterval(logTimer)
       ElMessage.info('开发者模式已关闭')
@@ -183,16 +186,34 @@ function onVersionClick() {
   }
 }
 
-/** 增量拉取日志（游标 since，3s 轮询；拦截器已解包，返回的就是 data） */
+/** 时间窗切换：清空缓冲，按新窗口重新回看 */
+function onWindowChange() {
+  restartLogStream()
+}
+
+/** 重置日志流：清空 + 按当前窗口拉取 + 重启 2s 轮询 */
+function restartLogStream() {
+  clearInterval(logTimer)
+  logCursor = ''
+  logLines.value = []
+  pullLogs()
+  logTimer = setInterval(pullLogs, 2000)
+}
+
+/** 增量拉取日志（journal 游标；拦截器已解包，返回的就是 data） */
 async function pullLogs() {
   try {
-    const d = await api.getDevLogs(logCursor)
-    if (!d || !Array.isArray(d.lines)) return
-    if (!d.lines.length || (d.cursor ?? 0) === logCursor) {
-      logCursor = d.cursor ?? logCursor
+    const params = logCursor ? { cursor: logCursor, limit: 300 } : { minutes: logWindow, limit: 300 }
+    const d = await api.getDevLogs(params)
+    if (!d) return
+    if (d.reset || (d.cursor === '' && logCursor)) {
+      // 游标失效（journal 轮转/清理）：回退时间窗模式重新回看
+      logCursor = ''
       return
     }
+    if (!Array.isArray(d.lines)) return
     logCursor = d.cursor ?? logCursor
+    if (!d.lines.length) return
     logLines.value.push(...d.lines)
     // 上限 3000 行, 防长驻膨胀
     if (logLines.value.length > 3000) logLines.value = logLines.value.slice(-3000)
@@ -317,9 +338,7 @@ onMounted(() => {
   loadSystemInfo()
   // 刷新后开发者模式仍开启(sessionStorage持久化): 恢复日志轮询
   if (devMode.value) {
-    logCursor = 0
-    pullLogs()
-    logTimer = setInterval(pullLogs, 3000)
+    restartLogStream()
   }
 })
 </script>

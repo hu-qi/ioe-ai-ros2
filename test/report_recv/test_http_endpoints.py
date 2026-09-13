@@ -25,7 +25,7 @@ import asyncio
 
 from conftest import (
     DB, RAW_DIR, EVID_DIR, FULL_PAYLOAD, DELTA_PAYLOAD,
-    StubLogger, fresh_env,
+    StubLogger, fresh_env, clone,
 )
 
 
@@ -319,3 +319,51 @@ def test_reconcile_full_after_delta_via_http():
     # 合并后应 2 条事件（1 增量 + 1 整包独有）
     assert len(body["data"]["events"]) == 2, \
         "合并后应 2 条事件, 实际 %d" % len(body["data"]["events"])
+
+
+def test_get_devices_summary():
+    """GET /api/v1/devices 设备汇总 (doc/dev01 §8)"""
+    app, _ = _make_app()
+    _request(app, "POST", "/api/v1/reports", json_body=FULL_PAYLOAD)
+    _request(app, "POST", "/api/v1/events", json_body=DELTA_PAYLOAD)
+    _request(app, "POST", "/api/v1/subscriptions",
+             json_body={"device_id": "dev01"})
+    status, body = _request(app, "GET", "/api/v1/devices")
+    assert status == 200 and body["code"] == 0
+    devices = body["data"]["devices"]
+    assert "dev01" in devices and "dev02" in devices, \
+        "设备集合应含 dev01/dev02, 实际 %s" % list(devices)
+    d1 = devices["dev01"]
+    assert d1["report_count"] >= 1
+    assert d1["subscription"]["active"] is True
+    assert d1["latest_progress"] is None, "dev01 无增量进度应为 None"
+    assert devices["dev02"]["event_count"] >= 2, \
+        "dev02 增量事件应入库, 实际 %d" % devices["dev02"]["event_count"]
+    assert devices["dev02"]["latest_progress"]["done"] == 2
+
+
+def test_get_reports_limit_param():
+    """GET /api/v1/reports 兼容 dev01 §8 limit 参数"""
+    app, _ = _make_app()
+    # 制造 3 条报告
+    for i in range(3):
+        payload = clone(FULL_PAYLOAD)
+        payload["round"]["start_ms"] += i + 1
+        _request(app, "POST", "/api/v1/reports", json_body=payload)
+    status, body = _request(app, "GET", "/api/v1/reports?limit=2")
+    assert status == 200 and body["code"] == 0
+    assert len(body["data"]["list"]) == 2, \
+        "limit=2 应只返回 2 条, 实际 %d" % len(body["data"]["list"])
+    assert body["data"]["total"] == 3
+
+
+def test_debug_training_summary():
+    """GET /api/v1/debug/training_summary 联调汇总"""
+    app, _ = _make_app()
+    _request(app, "POST", "/api/v1/reports", json_body=FULL_PAYLOAD)
+    status, body = _request(app, "GET", "/api/v1/debug/training_summary")
+    assert status == 200 and body["code"] == 0
+    data = body["data"]
+    assert data["reports"] >= 1
+    assert data["events"] >= 2, "整包 events 应入库"
+    assert len(data["recent_reports"]) >= 1

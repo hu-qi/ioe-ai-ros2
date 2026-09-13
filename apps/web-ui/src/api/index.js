@@ -39,7 +39,8 @@ export const api = {
   // 证据（P3）
   listEvidence(params) { return http.get('/evidence', { params }) },
   // 开发者模式实时日志（设置页连点版本号 7 次开启）
-  getDevLogs(since = 0) { return http.get('/dev/logs', { params: { since, limit: 300 } }) },
+  // params: { cursor?, minutes?, limit? } — cursor 空 = 按 minutes 时间窗回看
+  getDevLogs(params = {}) { return http.get('/dev/logs', { params }) },
   evidenceImageUrl(id, thumb = true) {
     return `/api/v1/evidence/${id}/image${thumb ? '?thumb=1' : ''}`
   },
