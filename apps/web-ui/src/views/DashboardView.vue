@@ -6,6 +6,7 @@
       <section class="card rt-panel">
         <div class="card-title">
           <span class="live-dot" :class="hasActive ? 'on' : 'off'"></span>实时训练动态
+          <InfoTip text="实时展示各设备训练进度与最近事件流（开始/完成/出错/超时），并显示最新抓拍画面；绿点=训练中，灰点=空闲" />
           <span class="title-extra">{{ rt.devices.length }} 台设备</span>
         </div>
 
@@ -71,6 +72,7 @@
       <section class="card diag-panel">
         <div class="card-title">
           五维诊断热点
+          <InfoTip text="基于全班训练数据自动诊断五类教学瓶颈（按严重度 Top3）：①瓶颈步骤=平均用时超SOP标准 ②顽固性错误=步骤遗漏率高 ③顺序混乱=顺序错误率高 ④步骤间隔=衔接卡壳 ⑤用时波动=发挥不稳定；点击条目行可展开详情，点「详情」看完整诊断" />
           <span class="title-extra">
             <span class="link" @click="goReportsDiagnosis">查看更多 →</span>
           </span>
@@ -89,7 +91,7 @@
 
       <!-- ④ 需关注学员（doc/04 §3.5：点击开 StudentDrawer，不跳页） -->
       <section class="card att-panel">
-        <div class="card-title">需关注学员 <span class="title-extra">共 {{ filteredAttention.length }} 人</span></div>
+        <div class="card-title">需关注学员 <InfoTip text="按退步预警、低分、待辅导等规则自动筛出的重点学员名单；点击姓名可打开学员速览" /> <span class="title-extra">共 {{ filteredAttention.length }} 人</span></div>
         <el-empty v-if="!filteredAttention.length" description="暂无需关注学员" :image-size="72" />
         <div v-else class="att-list">
           <div v-for="s in filteredAttention" :key="s.student_id" class="att-row">
@@ -106,6 +108,7 @@
     <!-- ===== 第三行：⑤ 最近完成轮次（表格，doc/04 §3.6） ===== -->
     <section class="card recent-panel">
       <div class="card-title">最近完成轮次
+        <InfoTip text="最近完成的训练轮次列表，可按学员/工序筛选；点击行打开报告速览，可查看子步骤明细与证据图" />
         <span class="title-extra"><span class="link" @click="go('/reports')">查看更多 →</span></span>
       </div>
       <el-table :data="filteredRecent" size="default" @row-click="(r) => openReport(r)">
@@ -151,6 +154,7 @@ import { fmtDuration, fromNow, attentionTag, EVENT_KIND_STYLE, fmtClock } from '
 import MetricCard from '../components/MetricCard.vue'
 import ScoreTag from '../components/ScoreTag.vue'
 import DiagnosisItem from '../components/DiagnosisItem.vue'
+import InfoTip from '../components/InfoTip.vue'
 import EvidenceThumb from '../components/EvidenceThumb.vue'
 
 const router = useRouter()
