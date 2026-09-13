@@ -3,6 +3,8 @@
     <div class="diag-row" @click="expanded = !expanded">
       <span class="diag-warn">⚠</span>
       <span class="diag-text">{{ item.metric_label || descText }}</span>
+      <!-- 显式"详情"入口：打开完整 Drawer（与行点击的内嵌展开互不干扰） -->
+      <span class="diag-detail-btn" @click.stop="$emit('detail')">详情</span>
       <el-icon class="diag-arrow" :class="{ open: expanded }"><ArrowDown /></el-icon>
     </div>
     <div class="diag-advice">💡 建议：{{ item.advice_text || '结合课堂表现调整教学重点' }}</div>
@@ -38,6 +40,7 @@ import { DIAG_TYPE_LABEL, fmtDurationFromMetric } from '../utils/diag'
 const props = defineProps({
   item: { type: Object, required: true },
 })
+defineEmits(['detail'])
 const expanded = ref(false)
 
 const typeLabel = computed(() => DIAG_TYPE_LABEL[props.item.diagnosis_type] || props.item.diagnosis_type)
@@ -63,6 +66,12 @@ const fmtMetric = computed(() => {
 .diag-item { padding: 12px 16px; transition: box-shadow var(--t-fast); }
 .diag-item:hover { box-shadow: var(--shadow-hover); }
 .diag-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.diag-detail-btn {
+  flex: none; font-size: var(--fs-aux); color: var(--c-primary);
+  border: 1px solid var(--c-primary); border-radius: 4px; padding: 1px 8px;
+  cursor: pointer; user-select: none; transition: background var(--t-fast);
+}
+.diag-detail-btn:hover { background: var(--c-primary-light, rgba(37, 99, 235, .08)); }
 .diag-warn { color: var(--c-warning); font-weight: 700; }
 .diag-text { font-size: var(--fs-h3); font-weight: 600; color: var(--c-text-main); flex: 1; }
 .diag-arrow { color: var(--c-text-weak); transition: transform var(--t-med); }
