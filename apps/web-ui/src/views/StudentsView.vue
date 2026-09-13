@@ -25,6 +25,13 @@
         <el-table-column label="姓名" prop="name" min-width="110" />
         <el-table-column label="学号" prop="id" width="110" />
         <el-table-column label="班级" prop="cls" width="100" />
+        <el-table-column label="来源" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.source === 'auto_sync'" size="small" type="warning" effect="plain">端侧自动建档</el-tag>
+            <el-tag v-else-if="row.source === 'import'" size="small" type="info" effect="plain">导入</el-tag>
+            <el-tag v-else size="small" effect="plain">手动</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="工种" prop="trade" width="110">
           <template #default="{ row }">{{ row.trade || '-' }}</template>
         </el-table-column>

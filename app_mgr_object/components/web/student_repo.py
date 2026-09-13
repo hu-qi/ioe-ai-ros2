@@ -50,12 +50,18 @@ class StudentRepo:
             os.makedirs(parent, exist_ok=True)
 
     def init_schema(self) -> None:
-        """执行建表 DDL（幂等）"""
+        """执行建表 DDL（幂等），并对存量库自动补列（迁移）"""
         with open(self.SCHEMA_FILE, "r", encoding="utf-8") as f:
             schema_sql = f.read()
         conn = self._connect()
         try:
             conn.executescript(schema_sql)
+            # 迁移: 存量库缺 source 列时自动补齐(新增列, 幂等)
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(students)")}
+            if "source" not in cols:
+                conn.execute("ALTER TABLE students ADD COLUMN source TEXT")
+                if self.logger:
+                    self.logger.info("StudentRepo: 迁移补列 students.source 完成")
             conn.commit()
             if self.logger:
                 self.logger.info("StudentRepo: schema 初始化完成")
@@ -128,13 +134,14 @@ class StudentRepo:
             if isinstance(extra_val, dict):
                 extra_val = json.dumps(extra_val, ensure_ascii=False)
             conn.execute(
-                """INSERT INTO students (id, name, cls, trade, enroll_date, status, remark, extra, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)""",
+                """INSERT INTO students (id, name, cls, trade, enroll_date, status, remark, source, extra, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)""",
                 (sid, name,
                  student.get("cls", "").strip() or None,
                  student.get("trade", "").strip() or None,
                  student.get("enroll_date", "").strip() or None,
                  student.get("remark", "").strip() or None,
+                 student.get("source", "").strip() or "manual",
                  extra_val,
                  now, now)
             )
@@ -248,7 +255,7 @@ class StudentRepo:
             # 分页
             offset = (page - 1) * page_size
             rows = conn.execute(
-                f"""SELECT id, name, cls, trade, enroll_date, status, remark, created_at, updated_at
+                f"""SELECT id, name, cls, trade, enroll_date, status, remark, source, created_at, updated_at
                     FROM students{where_clause}
                     ORDER BY created_at DESC
                     LIMIT ? OFFSET ?""",
@@ -298,13 +305,14 @@ class StudentRepo:
                 trade_val = (row.get("trade") or "").strip() or None
                 enroll_val = (row.get("enroll_date") or "").strip() or None
                 remark_val = (row.get("remark") or "").strip() or None
+                source_val = (row.get("source") or "").strip() or "import"
                 data.append((sid, name, cls_val, trade_val, enroll_val,
-                             'active', remark_val, now, now))
+                             'active', remark_val, source_val, now, now))
 
             conn.executemany(
                 """INSERT OR REPLACE INTO students
-                   (id, name, cls, trade, enroll_date, status, remark, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, name, cls, trade, enroll_date, status, remark, source, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 data
             )
             conn.commit()

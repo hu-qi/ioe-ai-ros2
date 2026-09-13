@@ -135,10 +135,16 @@ class ReportRepo:
         return int(time.time() * 1000)
 
     # ------------------------------------------------------------------
-    # 软关联: 查 students 表判断 student_id 是否存在
+    # 软关联: 查 students 表判断 student_id 是否存在; 台账缺失时自动建档
     # ------------------------------------------------------------------
-    def _check_student_bound(self, conn: sqlite3.Connection, student_id: Optional[str]) -> int:
-        """查 students 表, 存在返回 1, 不存在/未绑定返回 0. 不阻塞主流程."""
+    def _check_student_bound(self, conn: sqlite3.Connection, student_id: Optional[str],
+                             student: Optional[Dict[str, Any]] = None) -> int:
+        """查 students 表, 存在返回 1。
+
+        自动建档策略(用户确认): 上报带 student(id+name) 且台账不存在时,
+        自动 create 记录, source='auto_sync'(端侧自动建档); 幂等(存在即跳过)。
+        不阻塞主流程: 任何异常仅记日志, 返回 0。
+        """
         if not student_id:
             return 0
         try:
@@ -146,11 +152,28 @@ class ReportRepo:
                 "SELECT 1 FROM students WHERE id = ? AND status != 'deleted' LIMIT 1",
                 (student_id,)
             ).fetchone()
-            return 1 if row else 0
-        except sqlite3.Error:
-            # students 表不存在或查询失败, 不阻塞入库
+            if row:
+                return 1
+            # 台账不存在 → 自动建档(需 id+name, 幂等 OR IGNORE)
+            info = student or {}
+            sid = (info.get("id") or "").strip()
+            name = (info.get("name") or "").strip()
+            if not sid or not name:
+                return 0
+            now = int(time.time() * 1000)
+            conn.execute(
+                """INSERT OR IGNORE INTO students
+                   (id, name, cls, trade, enroll_date, status, remark, source, created_at, updated_at)
+                   VALUES (?, ?, ?, NULL, NULL, 'active', '端侧上报自动建档', 'auto_sync', ?, ?)""",
+                (sid, name, (info.get("cls") or "").strip() or None, now, now)
+            )
             if self.logger:
-                self.logger.debug(f"ReportRepo: students 表查询失败, student_bound=0")
+                self.logger.info(f"ReportRepo: 自动建档学员 {sid}({name}), source=auto_sync")
+            return 1
+        except sqlite3.Error:
+            # students 表不存在或写入失败, 不阻塞入库
+            if self.logger:
+                self.logger.debug(f"ReportRepo: students 表操作失败, student_bound=0")
             return 0
 
     # ------------------------------------------------------------------
@@ -192,7 +215,7 @@ class ReportRepo:
             student_cls = student.get("cls", "")
 
             # 软关联标记 (不阻塞)
-            student_bound = self._check_student_bound(conn, student_id)
+            student_bound = self._check_student_bound(conn, student_id, student)
 
             if existing and existing["is_stub"]:
                 # 存根报告补全：UPDATE 为完整报告
@@ -343,7 +366,7 @@ class ReportRepo:
 
             if not existing:
                 # 创建存根报告 (is_stub=1, 待整包补全)
-                student_bound = self._check_student_bound(conn, student_id)
+                student_bound = self._check_student_bound(conn, student_id, student)
                 conn.execute(
                     """INSERT INTO reports
                        (report_id, device_id, student_id, student_name, student_cls,

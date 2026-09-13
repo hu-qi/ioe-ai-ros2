@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS students (
     status        TEXT    NOT NULL DEFAULT 'active'
                           CHECK (status IN ('active','graduated','dropped','deleted')),
     remark        TEXT,                             -- 备注
+    source        TEXT,                             -- 来源: manual=手动/端侧自动建档=auto_sync, CSV导入=import
     extra         TEXT,                             -- 扩展字段，JSON 字符串
     created_at    INTEGER NOT NULL,                 -- 创建时间（epoch ms）
     updated_at    INTEGER NOT NULL                  -- 更新时间（epoch ms）

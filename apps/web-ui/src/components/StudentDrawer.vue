@@ -14,6 +14,10 @@
           <b>{{ student.name }}</b>
           <el-tag size="small" type="info">{{ student.cls || '-' }}</el-tag>
           <el-tag size="small">{{ student.id }}</el-tag>
+          <!-- 来源: auto_sync=端侧自动建档 / import=导入 / 默认手动 -->
+          <el-tag v-if="student.source === 'auto_sync'" size="small" type="warning" effect="plain">端侧自动建档</el-tag>
+          <el-tag v-else-if="student.source === 'import'" size="small" type="info" effect="plain">导入</el-tag>
+          <el-tag v-else size="small" effect="plain">手动</el-tag>
           <el-tag v-if="reason" size="small" :type="reason.type">{{ reason.text }}</el-tag>
         </div>
         <div v-if="detail" class="dw-reason">{{ detail }}</div>
