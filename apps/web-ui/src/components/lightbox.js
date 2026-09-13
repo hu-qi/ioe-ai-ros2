@@ -13,7 +13,8 @@ const state = reactive({
 export function useLightbox() {
   return {
     state,
-    bind(refComp) { state.bindFn = (list, idx) => refComp?.open?.(list, idx) },
+    /** refComp: 模板 ref(EvidenceLightbox 组件引用)，调用时解包 .value */
+    bind(refComp) { state.bindFn = (list, idx) => refComp?.value?.open?.(list, idx) },
     /** list: [{url, sub, ts}]，idx: 起始下标 */
     open(list, idx = 0) {
       if (state.bindFn) state.bindFn(list, idx)

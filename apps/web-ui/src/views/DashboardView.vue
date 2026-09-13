@@ -82,7 +82,8 @@
         </div>
         <el-empty v-else-if="!diagTop.length" description="暂无诊断结果，完成训练后自动生成" :image-size="72" />
         <div v-else class="diag-list">
-          <DiagnosisItem v-for="(d, i) in diagTop" :key="i" :item="d" @click.stop="openDiagnosis(d)" />
+          <!-- 点击条目行 = 内嵌展开详情(04.1§3.4)；不再冒泡开 Drawer，避免展开/收起误触发 -->
+          <DiagnosisItem v-for="(d, i) in diagTop" :key="i" :item="d" />
         </div>
       </section>
 
@@ -296,7 +297,6 @@ function openStudent(s) {
   })
 }
 function openReport(r) { ws.openDrawer('report', { report_id: r.report_id }) }
-function openDiagnosis(d) { ws.openDrawer('diagnosis', d) }
 function goReportsDiagnosis() { go('/reports') }
 </script>
 
