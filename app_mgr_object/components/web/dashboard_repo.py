@@ -409,6 +409,8 @@ class DashboardRepo:
         对应 doc/72 §3.4
 
         数据来源：report_progress 表（P1 期增量事件入库时写入）
+        每台设备只展示最新一个轮次（按 updated_at 取最大）——
+        设备端重开轮次后旧轮次进度仍留在表中，不去重会显示多行同设备数据。
         """
         conn = self._connect()
         try:
@@ -423,6 +425,13 @@ class DashboardRepo:
                           r.student_name,
                           r.is_stub
                    FROM report_progress rp
+                   INNER JOIN (
+                       -- 每设备最新一条进度（同 updated_at 时取字典序更大的 report_id，保证确定性）
+                       SELECT device_id, MAX(updated_at) AS max_updated
+                       FROM report_progress
+                       GROUP BY device_id
+                   ) latest ON latest.device_id = rp.device_id
+                           AND latest.max_updated = rp.updated_at
                    LEFT JOIN reports r ON r.report_id = rp.report_id
                    ORDER BY rp.updated_at DESC"""
             ).fetchall()
